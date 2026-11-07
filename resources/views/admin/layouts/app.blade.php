@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>@yield('title', '听书后台')</title>
+<style>
+:root { --line:#e3e6ea; --muted:#6b7280; --accent:#185fa5; --danger:#a32d2d; --ok:#0f6e56; }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; color:#1f2937; background:#f7f8fa; }
+header { display:flex; align-items:center; gap:20px; padding:12px 24px; background:#fff; border-bottom:1px solid var(--line); }
+header a { color:var(--accent); text-decoration:none; }
+header .brand { font-weight:600; margin-right:auto; }
+main { max-width:1080px; margin:24px auto; padding:0 20px; }
+.card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:20px; }
+h1 { font-size:20px; margin:0 0 16px; }
+h2 { font-size:15px; margin:0 0 14px; }
+label { display:block; margin:10px 0 4px; color:#374151; }
+input[type=text], input[type=password], input[type=file], select, textarea { width:100%; max-width:420px; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; font:inherit; }
+button, .btn { display:inline-block; padding:7px 14px; border:1px solid var(--accent); border-radius:6px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; text-decoration:none; }
+button.ghost, .btn.ghost { background:#fff; color:var(--accent); }
+button.danger { background:#fff; color:var(--danger); border-color:var(--danger); }
+button:disabled { opacity:.5; cursor:default; }
+table { width:100%; border-collapse:collapse; }
+th, td { padding:10px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; }
+th { color:var(--muted); font-weight:500; }
+tr[draggable] { cursor:grab; }
+tr.drag-over { background:#eef6fd; }
+.msg { padding:10px 14px; border-radius:6px; margin-bottom:16px; }
+.msg.ok { background:#e1f5ee; color:var(--ok); }
+.msg.err { background:#fcebeb; color:var(--danger); }
+.muted { color:var(--muted); }
+.inline { display:inline; }
+.row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+.row > div { min-width:160px; }
+audio { height:32px; max-width:220px; }
+img.thumb { width:40px; height:40px; object-fit:cover; border-radius:4px; background:#f3f4f6; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">听书后台</span>
+  <a href="{{ route('admin.tracks.index') }}">音频</a>
+  <a href="{{ route('admin.albums.index') }}">专辑</a>
+  <form method="POST" action="{{ route('admin.logout') }}" class="inline">@csrf<button class="ghost">退出</button></form>
+</header>
+<main>
+  @if(session('status'))<div class="msg ok">{{ session('status') }}</div>@endif
+  @if($errors->any())<div class="msg err">{{ $errors->first() }}</div>@endif
+  @yield('content')
+</main>
+<script>
+window.csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+window.postJson = async function (url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': window.csrfToken },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({ ok: false, message: '响应解析失败' }));
+  if (!res.ok || !data.ok) { alert('操作失败：' + (data.message || res.status)); return false; }
+  return true;
+};
+window.bindReorder = function (selector, url, buildPayload) {
+  document.querySelectorAll(selector).forEach(row => {
+    row.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', row.dataset.id));
+    row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('drag-over'); });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+    row.addEventListener('drop', async e => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      const movingId = e.dataTransfer.getData('text/plain');
+      if (!movingId || movingId === row.dataset.id) return;
+      if (await window.postJson(url, buildPayload(Number(movingId), row))) location.reload();
+    });
+  });
+};
+</script>
+@yield('scripts')
+</body>
+</html>
