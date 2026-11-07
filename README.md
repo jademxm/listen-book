@@ -46,7 +46,10 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 | `SESSION_DRIVER` | 默认 `file`，后台登录依赖它 |
 | `WX_APPID` / `WX_SECRET` | AppID 已填；AppSecret 在 mp 后台生成，**只存服务端** |
 | `ADMIN_PASSWORD` | 后台登录密码，单管理员 session，务必设强密码 |
-| `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_REGION` / `COS_BUCKET` / `COS_ENDPOINT` / `COS_CDN_DOMAIN` | bucket 形如 `name-1250000000`；endpoint 用 `https://cos.<region>.myqcloud.com`；CDN 域名即小程序 `downloadFile` 合法域名 |
+| `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_REGION` / `COS_BUCKET` / `COS_ENDPOINT` | 控制台「访问密钥 / 存储桶」取值；`COS_BUCKET` 形如 `name-1250000000`（含 AppId 后缀）；endpoint 用 `https://cos.<region>.myqcloud.com` |
+| `COS_CDN_DOMAIN` | **音频对外访问根地址**，不带路径/结尾斜杠。路径 A 填 bucket 默认访问域名 `https://<bucket>.cos.<region>.myqcloud.com`；路径 B 填自有域名 `https://cos.mixyj.cn`。它同时是小程序 `downloadFile` 合法域名 |
+| `AUDIO_DRIVER` | `s3`（默认，S3 兼容接口）/ `local`（服务器挂载目录）。业务代码 `Storage::disk('cos')` 不变；切换后执行 `php artisan config:clear` |
+| `AUDIO_LOCAL_ROOT` | 仅 `local` 模式：轻量对象存储一键挂载到服务器的目录，如 `/mnt/lightcos` |
 | `COS_USE_PATH_STYLE` | 可选，默认 `false`；上传报 403/域名异常时改 `true` |
 | `MINIAPP_ANNOUNCEMENT` | 首页公告，可空 |
 
@@ -63,9 +66,67 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 
 改完配置执行 `php artisan config:clear`。
 
-### COS 与上传大小
+### 轻量对象存储（Lighthouse 版）：没有自定义域名
 
-COS bucket 设为**公有读、私有写**；在 COS 控制台给 `cos.mixyj.cn` 绑定自定义域名并配好 CDN + HTTPS。若上传报 403 或域名解析异常，设 `COS_USE_PATH_STYLE=true`，或改用带 bucket 的 endpoint（`https://<bucket>.cos.<region>.myqcloud.com`）。
+> 官方对比表原文：轻量对象存储（Lighthouse 版）访问域名为 `<Bucket-Appid>.cos.<Region>.myqcloud.com`，**不支持自定义源站域名**；标准 COS 才支持。所以控制台找不到「给 bucket 配域名」是产品限制，不是漏配。
+> 若你买的是 2025 年后的独立产品「轻量对象存储 LightCOS」（`console.cloud.tencent.com/lightcos`），它**支持**自定义域名：存储桶详情 → 域名管理 → 自定义域名 → 添加域名 + CNAME 解析；那种情况按原方案填 `cos.mixyj.cn` 即可。
+
+两条路径任选，**业务代码都不用改**：
+
+#### 路径 A（推荐）：直接用 bucket 默认访问域名
+
+1. 控制台 → 存储桶 → **访问权限**：改成「公有读私有写」（Lighthouse 版默认私有读写，不改音频会 403）。
+2. 文件列表里「分享」任一文件，复制对象地址，取 `https://<Bucket-Appid>.cos.<Region>.myqcloud.com` 这一段。
+3. `.env`：
+
+   ```ini
+   AUDIO_DRIVER=s3
+   COS_BUCKET=listen-book-1250000000
+   COS_REGION=ap-guangzhou
+   COS_ENDPOINT=https://cos.ap-guangzhou.myqcloud.com
+   COS_CDN_DOMAIN=https://listen-book-1250000000.cos.ap-guangzhou.myqcloud.com
+   ```
+
+4. mp 后台「downloadFile 合法域名」填与 `COS_CDN_DOMAIN` 一致的地址。若 mp 后台不接受带 bucket 的完整域名，改填地域根域名 `https://cos.<Region>.myqcloud.com`，两者都加上也可以。体验版仍需配置，开发者工具可勾「不校验合法域名」。
+5. 默认域名有下载频率限制、无加速，个人体验版够用；正式放量建议换标准 COS + 自定义域名/CDN。
+
+> ⚠️ Lighthouse 版官方只声明「支持 COS SDK」，**未声明兼容 AWS S3 SDK**。本工程用 `league/flysystem-aws-s3-v3` 走 S3 兼容协议，需实测：后台上传一条小音频，若返回 `403 SignatureDoesNotMatch` / `400 InvalidArgument` / `501 Not Implemented`，先试 `COS_USE_PATH_STYLE=true`；仍失败就直接走路径 B，不要反复调密钥。
+
+#### 路径 B（兜底）：一键挂载 + nginx 自有域名
+
+Lighthouse 版支持把存储桶**一键挂载**到轻量应用服务器本地目录（同地域内网互通、内网流量免费），彻底绕开 SDK 兼容性。
+
+1. 控制台 → 轻量应用服务器 → 轻量存储 → 一键挂载，记下挂载目录（如 `/mnt/lightcos`）。
+2. `.env`：
+
+   ```ini
+   AUDIO_DRIVER=local
+   AUDIO_LOCAL_ROOT=/mnt/lightcos
+   COS_CDN_DOMAIN=https://cos.mixyj.cn
+   ```
+
+   `config/filesystems.php` 的 `cos` 磁盘会切成 `local` 驱动，`Storage::disk('cos')->put/delete` 照常工作。
+3. `cos.mixyj.cn` 解析到 `43.133.250.32` 并配 HTTPS，nginx 静态站：
+
+   ```nginx
+   server {
+       listen 443 ssl http2;
+       server_name cos.mixyj.cn;
+       root /mnt/lightcos;
+       # ssl_certificate / ssl_certificate_key ...
+       location / {
+           try_files $uri =404;
+           add_header Cache-Control "public, max-age=31536000, immutable";
+       }
+   }
+   ```
+
+   object key 形如 `audio/1/xxx.mp3`，与挂载目录结构一致，直接命中。
+4. mp 后台 `downloadFile` 合法域名填 `https://cos.mixyj.cn`。
+5. 代价：音频流量走服务器公网带宽（轻量服务器带宽较小，多人同时听会卡），体验版/自用没问题。
+6. 确保 PHP-FPM 用户对挂载目录可写、nginx 用户可读；切驱动后执行 `php artisan config:clear`。
+
+#### 上传大小（两条路径都要调）
 
 ```ini
 ; php.ini
@@ -80,20 +141,6 @@ client_max_body_size 128m;
 
 改完 reload PHP-FPM 与 nginx。
 
----
-
-## 3. 生产部署
-
-nginx 站点根目录指向 `backend/public`，`try_files $uri $uri/ /index.php?$query_string;`，PHP 请求转给 PHP-FPM；HTTPS 证书覆盖 `api.mixyj.cn`。
-
-```bash
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-```
-
-> 改动路由后需 `php artisan route:clear && php artisan route:cache`（业务路由由 `require` 引入，缓存的是编译后的路由表，不受影响）。
-> 若反代后生成的 URL 是 `http://`：确认 nginx 传了 `X-Forwarded-Proto`，并把 `app/Http/Middleware/TrustProxies.php` 的 `$proxies` 设为反代 IP 或 `'*'`。`APP_ENV=production` 时 `AppServiceProvider` 已自动 `URL::forceScheme('https')`。
 
 ---
 
@@ -144,7 +191,7 @@ php artisan view:cache
 | 项 | 值 |
 | --- | --- |
 | request 合法域名 | `https://api.mixyj.cn` |
-| downloadFile 合法域名 | `https://cos.mixyj.cn` |
+| downloadFile 合法域名 | 路径 A：`https://<Bucket-Appid>.cos.<Region>.myqcloud.com`（若 mp 后台不接受，改填 `https://cos.<Region>.myqcloud.com`）；路径 B：`https://cos.mixyj.cn` |
 | 后台能力 | `app.json` 的 `requiredBackgroundModes: ["audio"]` 已声明（开发版/体验版直接生效） |
 | 隐私 | 配置《小程序用户隐私保护指引》，声明收集 `openid`、播放记录 |
 
@@ -181,5 +228,5 @@ curl -s -X POST https://api.mixyj.cn/api/v1/auth/login \
 2. `wx.login` 的 code 有效期 5 分钟、只能用一次；小程序 `services/auth.js` 在每次冷启动与 401 时重新换取 token。
 3. 后台播放期间微信不回调 `onTimeUpdate`，**播放进度只在小程序前台时上报**；切歌 / 暂停 / 回前台时补报，因此后台播放的历史进度会滞后于实际播放位置。
 4. `BackgroundAudioManager.setShutdown` 官方文档缺少 `time` 单位与 `autoNext` 语义细项，小程序侧做了能力探测 + JS 兜底，需在真机确认后按实测调整。
-5. 音频 URL 使用 COS 公有读 + 防盗链的长期有效地址；若改成短时效签名 URL，后台连续播放超时会断播。
+5. 音频 URL 为公有读长期地址（轻量对象存储 Lighthouse 版**不支持自定义源站域名**，只能用默认访问域名或挂载 + 自有域名）；若改短时效签名 URL，后台连续播放超时会断播。公有读有流量盗刷风险，注意套餐流量。
 6. 后台登录为单管理员 + session，无 RBAC / 操作审计；管理接口依赖 HTTPS 保护。
