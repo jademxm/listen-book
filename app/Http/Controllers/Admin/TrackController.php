@@ -13,7 +13,6 @@ use App\Services\AudioStorageService;
 use App\Services\CatalogService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use InvalidArgumentException;
 use RuntimeException;
@@ -65,7 +64,7 @@ class TrackController extends Controller
             ]);
         } catch (InvalidArgumentException|RuntimeException $e) {
             foreach (array_filter([$audioKey, $coverKey]) as $key) {
-                Storage::disk('cos')->delete($key);
+                $storage->deleteQuietly($key);
             }
 
             return back()->withErrors(['audio' => $e->getMessage()])->withInput();
@@ -91,9 +90,7 @@ class TrackController extends Controller
             unset($data['cover']);
             $track->update($data);
         } catch (InvalidArgumentException|RuntimeException $e) {
-            if ($coverKey) {
-                Storage::disk('cos')->delete($coverKey);
-            }
+            $storage->deleteQuietly($coverKey);
 
             return back()->withErrors(['cover' => $e->getMessage()]);
         }

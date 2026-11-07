@@ -87,8 +87,63 @@ class AudioStorageService
         return $this->url($value);
     }
 
+    /** 回滚清理：删除失败不应掩盖原始错误，也不应再次触发 SDK 异常导致 500。 */
+    public function deleteQuietly(?string $key): void
+    {
+        if (! $key) {
+            return;
+        }
+
+        try {
+            Storage::disk('cos')->delete($key);
+        } catch (\Throwable $e) {
+            // 清理失败留待人工处理，主错误信息优先返回给后台
+        }
+    }
+
+    /** 发网络请求前拦截配置缺失，避免 AWS SDK 抛出难懂的底层凭证异常。 */
+    private function assertConfigured(): void
+    {
+        $disk = config('filesystems.disks.cos', []);
+
+        if (($disk['driver'] ?? null) !== 's3') {
+            return; // local 挂载模式不需要密钥
+        }
+
+        $missing = [];
+        foreach ([
+            'key' => 'COS_SECRET_ID',
+            'secret' => 'COS_SECRET_KEY',
+            'bucket' => 'COS_BUCKET',
+            'endpoint' => 'COS_ENDPOINT',
+            'url' => 'COS_CDN_DOMAIN',
+        ] as $config => $envKey) {
+            if (trim((string) ($disk[$config] ?? '')) === '') {
+                $missing[] = $envKey;
+            }
+        }
+
+        if ($missing) {
+            throw new RuntimeException(
+                '对象存储未配置：.env 里的 '.implode('、', $missing).' 为空。'
+                .'请填入腾讯云访问密钥与存储桶信息，或改 AUDIO_DRIVER=local 走服务器挂载目录；'
+                .'改动后执行 php artisan config:clear。'
+            );
+        }
+
+        foreach (['bucket' => 'COS_BUCKET', 'url' => 'COS_CDN_DOMAIN'] as $config => $envKey) {
+            if (str_contains((string) $disk[$config], 'your-bucket-1250000000')) {
+                throw new RuntimeException(
+                    $envKey.' 仍是 .env.example 的模板占位值，请改成控制台里的真实存储桶名/访问域名（含 AppId 后缀）。'
+                );
+            }
+        }
+    }
+
     private function put(string $key, UploadedFile $file): void
     {
+        $this->assertConfigured();
+
         $stream = fopen($file->getRealPath(), 'rb');
         if ($stream === false) {
             throw new RuntimeException('无法读取上传文件');

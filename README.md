@@ -46,7 +46,7 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 | `SESSION_DRIVER` | 默认 `file`，后台登录依赖它 |
 | `WX_APPID` / `WX_SECRET` | AppID 已填；AppSecret 在 mp 后台生成，**只存服务端** |
 | `ADMIN_PASSWORD` | 后台登录密码，单管理员 session，务必设强密码 |
-| `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_REGION` / `COS_BUCKET` / `COS_ENDPOINT` | 控制台「访问密钥 / 存储桶」取值；`COS_BUCKET` 形如 `name-1250000000`（含 AppId 后缀）；endpoint 用 `https://cos.<region>.myqcloud.com` |
+| `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_REGION` / `COS_BUCKET` / `COS_ENDPOINT` | 控制台「访问密钥 / 存储桶」取值；`COS_BUCKET` 形如 `name-1250000000`（含 AppId 后缀）；endpoint 用 `https://cos.<region>.myqcloud.com`；**前两项必填，留空上传会报 IMDS 超时，见第 3 节** |
 | `COS_CDN_DOMAIN` | **音频对外访问根地址**，不带路径/结尾斜杠。路径 A 填 bucket 默认访问域名 `https://<bucket>.cos.<region>.myqcloud.com`；路径 B 填自有域名 `https://cos.mixyj.cn`。它同时是小程序 `downloadFile` 合法域名 |
 | `AUDIO_DRIVER` | `s3`（默认，S3 兼容接口）/ `local`（服务器挂载目录）。业务代码 `Storage::disk('cos')` 不变；切换后执行 `php artisan config:clear` |
 | `AUDIO_LOCAL_ROOT` | 仅 `local` 模式：轻量对象存储一键挂载到服务器的目录，如 `/mnt/lightcos` |
@@ -57,7 +57,7 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 
 - `composer.json`：已含 `laravel/framework ^10.10`、`laravel/sanctum ^3.2`、`league/flysystem-aws-s3-v3 ^3.0`、`guzzlehttp/guzzle`
 - `config/auth.php`：`wx` guard = `sanctum` + `wx_users` provider，与后台 session 认证隔离
-- `config/filesystems.php`：`cos` 磁盘（`s3` 驱动，S3 兼容协议）
+- `config/filesystems.php`：`cos` 磁盘（`s3` / `local` 由 `AUDIO_DRIVER` 切换）；`s3` 分支显式设 `credentials => false`，避免密钥缺失时 AWS SDK 回退实例元数据服务（169.254.169.254）
 - `config/services.php`：`wechat` / `cos.cdn_domain` / `admin.password` / `miniapp.announcement`
 - `config/app.php`：时区读 `APP_TIMEZONE`；其余为 Laravel 10 官方默认
 - `routes/api.php` → `require api.v1.php`（由 `RouteServiceProvider` 套 `/api` 前缀 + `api` 中间件组）
@@ -141,6 +141,31 @@ client_max_body_size 128m;
 
 改完 reload PHP-FPM 与 nginx。
 
+
+## 3. 上传排错
+
+上传封面 / 音频失败时，错误信息会直接显示在后台表单顶部，先看这张表：
+
+| 现象 | 根因 | 处理 |
+| --- | --- | --- |
+| `Error retrieving credentials from the instance profile metadata service`、`169.254.169.254`、`cURL error 28` | `.env` 里 `COS_SECRET_ID` / `COS_SECRET_KEY` 为空。Laravel 只在两者都非空时才把 `credentials` 传给 AWS SDK；缺了 SDK 就走默认凭证链去找 EC2 实例元数据，本地与轻量服务器没这个服务 → 1 秒超时 | 填真实密钥后 `php artisan config:clear`；或改 `AUDIO_DRIVER=local` 走挂载目录 |
+| `对象存储未配置：.env 里的 COS_XXX 为空` | 本工程的前置校验提前拦下（不会再等 IMDS 超时） | 同上 |
+| `COS_BUCKET 仍是 .env.example 的模板占位值` | 直接复制模板，没改桶名 | 把 `your-bucket-1250000000` 换成控制台真实桶名，`COS_CDN_DOMAIN` 同步换 |
+| `403 SignatureDoesNotMatch` / `400 InvalidArgument` / `501 Not Implemented` | 轻量对象存储（Lighthouse 版）只声明支持 COS SDK，未声明兼容 AWS S3 SDK | 先试 `COS_USE_PATH_STYLE=true`；仍失败切路径 B（`AUDIO_DRIVER=local`） |
+| `NoSuchBucket` / `403 AccessDenied` | 桶名 / 地域错，或 bucket 还是「私有读写」 | 核对 `COS_BUCKET`（含 AppId 后缀）与 `COS_REGION`；控制台权限改「公有读私有写」 |
+| `UnableToWriteFile`、上传超时 | PHP / nginx 上传限制或网络不可达 | 见第 2 节「上传大小」，并执行下方自检 |
+
+### 配置自检（不用打开浏览器）
+
+```bash
+# 生效驱动与密钥填写状态（不打印密钥内容）
+php artisan tinker --execute="echo 'driver='.config('filesystems.disks.cos.driver').PHP_EOL; echo 'credentials='.(config('filesystems.disks.cos.key') ? 'filled' : 'EMPTY').PHP_EOL;"
+
+# 真实写入探测：成功返回「COS 写入成功」，桶里会留下 _probe/ 目录，可自行删除
+php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selftest.txt','ok') ? 'COS 写入成功' : '写入失败'; } catch (\Throwable \$e) { echo get_class(\$e).': '.\$e->getMessage(); }"
+```
+
+> 若执行过 `php artisan config:cache`，改完 `.env` 必须 `php artisan config:clear`（或重新 `config:cache`），否则读到的仍是旧值。切换 `AUDIO_DRIVER` 同理。
 
 ---
 

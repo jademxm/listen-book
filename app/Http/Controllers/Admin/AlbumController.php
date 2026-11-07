@@ -10,7 +10,6 @@ use App\Models\Album;
 use App\Services\AudioStorageService;
 use App\Services\CatalogService;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use InvalidArgumentException;
 use RuntimeException;
@@ -43,9 +42,7 @@ class AlbumController extends Controller
                 $album->update(['cover_url' => $storage->toUrl($coverKey)]);
             }
         } catch (InvalidArgumentException|RuntimeException $e) {
-            if ($coverKey) {
-                Storage::disk('cos')->delete($coverKey);
-            }
+            $storage->deleteQuietly($coverKey);
             if ($album) {
                 $album->forceDelete();
             }

@@ -35,6 +35,15 @@ return [
             ]
             : [
                 'driver' => 's3',
+                /*
+                 * 显式声明 credentials，阻止 AWS SDK 在 key/secret 为空时回退到
+                 * EC2 实例元数据服务（169.254.169.254）取临时凭证，造成
+                 * "Error retrieving credentials from the instance profile metadata service"
+                 * 与 cURL error 28 超时。Laravel 的 formatS3Config() 在 key/secret
+                 * 齐备时会用真实凭证数组覆盖此值；缺失时则是匿名请求，由
+                 * AudioStorageService 的前置校验提前给出中文提示。
+                 */
+                'credentials' => false,
                 'key' => env('COS_SECRET_ID'),
                 'secret' => env('COS_SECRET_KEY'),
                 'region' => env('COS_REGION', 'ap-guangzhou'),
