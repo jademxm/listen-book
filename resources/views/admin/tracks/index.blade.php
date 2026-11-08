@@ -6,6 +6,14 @@
 
 <div class="card">
   <h2>上传音频</h2>
+  <p class="muted" style="font-size:12px">
+    当前 PHP-FPM 实测限制：upload_max_filesize = <b>{{ ini_get('upload_max_filesize') }}</b>，
+    post_max_size = <b>{{ ini_get('post_max_size') }}</b>，
+    单文件可用上限约 {{ round(\Illuminate\Http\UploadedFile::getMaxFilesize() / 1048576, 1) }}MB（业务上限 100MB）。
+    @if(\Illuminate\Http\UploadedFile::getMaxFilesize() < 100 * 1048576)
+      <span style="color:#c00">⚠ 当前限制低于业务上限，大音频会上传失败；按 README 第 2 节改 php.ini 并 reload php-fpm 后刷新本页确认。</span>
+    @endif
+  </p>
   <form method="POST" action="{{ route('admin.tracks.store') }}" enctype="multipart/form-data" id="upload-form">
     @csrf
     <div class="row">
@@ -24,6 +32,7 @@
     </div>
     <label for="audio">音频文件（mp3/m4a/aac/wav，≤100MB）</label>
     <input id="audio" type="file" name="audio" accept=".mp3,.m4a,.aac,.wav" required>
+    <p class="muted" style="font-size:12px">服务端需允许 ≥128MB 请求体；若上传返回 413 Request Entity Too Large，说明 nginx / PHP 限制未放宽，见 README 第 3 节。</p>
     <label for="cover">封面（选填）</label>
     <input id="cover" type="file" name="cover" accept="image/jpeg,image/png,image/webp">
     <input type="hidden" name="duration_sec" id="duration_sec" value="">
@@ -91,11 +100,19 @@
   const audioInput = document.getElementById('audio');
   const durationInput = document.getElementById('duration_sec');
   const hint = document.getElementById('duration-hint');
+  const MAX_AUDIO_BYTES = 100 * 1024 * 1024; // 与 StoreTrackRequest 的 max:102400（KB）对齐
+  let tooLarge = false;
 
   audioInput.addEventListener('change', () => {
     const file = audioInput.files && audioInput.files[0];
     durationInput.value = '';
+    tooLarge = false;
     if (!file) return;
+    if (file.size > MAX_AUDIO_BYTES) {
+      tooLarge = true;
+      hint.textContent = '文件 ' + (file.size / 1024 / 1024).toFixed(1) + 'MB 超过 100MB 上限，请压缩后再上传。';
+      return;
+    }
     const url = URL.createObjectURL(file);
     const probe = new Audio();
     probe.preload = 'metadata';
@@ -112,7 +129,12 @@
     probe.src = url;
   });
 
-  document.getElementById('upload-form').addEventListener('submit', () => {
+  document.getElementById('upload-form').addEventListener('submit', (e) => {
+    if (tooLarge) {
+      e.preventDefault();
+      audioInput.focus();
+      return;
+    }
     const btn = document.getElementById('upload-btn');
     btn.disabled = true;
     btn.textContent = '上传中…';

@@ -83,4 +83,27 @@ class ListenBookApiTest extends TestCase
         CatalogService::bump();
         $this->assertSame($before + 1, CatalogService::version());
     }
+
+    public function test_upload_failure_message_reports_php_limits(): void
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'lb_');
+        file_put_contents($tmp, 'x');
+
+        $file = new \Illuminate\Http\UploadedFile($tmp, 'a.mp3', 'audio/mpeg', UPLOAD_ERR_INI_SIZE, true);
+        $request = \App\Http\Requests\StoreTrackRequest::create('/admin/tracks', 'POST', [], [], ['audio' => $file]);
+        $request->setContainer($this->app);
+
+        $validator = $this->app->make('validator')->make(
+            $request->all(),
+            ['audio' => ['required', 'file', 'max:102400']],
+            $request->messages()
+        );
+
+        $message = $validator->errors()->first('audio');
+        $this->assertStringContainsString('upload_max_filesize', $message);
+        $this->assertStringContainsString((string) ini_get('upload_max_filesize'), $message);
+        $this->assertStringContainsString('reload php-fpm', $message);
+
+        @unlink($tmp);
+    }
 }
