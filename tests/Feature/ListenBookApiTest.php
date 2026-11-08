@@ -111,14 +111,15 @@ class ListenBookApiTest extends TestCase
         @unlink($tmp);
     }
 
-    public function test_upload_page_reports_web_runtime_ini(): void
+    public function test_upload_page_has_no_runtime_diagnostics(): void
     {
         $this->withSession(['admin_auth' => true])
             ->get('/admin/tracks')
             ->assertOk()
-            ->assertSee('本次 Web 请求实测')
-            ->assertSee('加载的 php.ini')
-            ->assertSee((string) ini_get('upload_max_filesize'));
+            ->assertSee('上传并上架')
+            ->assertDontSee('本次 Web 请求实测')
+            ->assertDontSee('加载的 php.ini')
+            ->assertDontSee('upload_max_filesize');
     }
 
     public function test_admin_can_update_album_and_unpublish_it(): void

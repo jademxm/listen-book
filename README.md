@@ -159,12 +159,12 @@ max_input_time      = 300
 ```bash
 sudo nginx -t && sudo nginx -s reload
 sudo systemctl reload php8.2-fpm   # 也可能是 php-fpm / php8.1-fpm，按实际版本
-# 验证：刷新后台「音频」上传页，看顶部「本次 Web 请求实测」；不要用 php -i（原因见下）
+# 验证：用下方 _ini.php 临时探针确认 FPM 实际生效值；不要用 CLI 的 php -i（原因见下）
 ```
 
 > ⚠ **`sudo -u www-data php -i | grep -E "upload_max_filesize|post_max_size"` 不能用来判断上传限制。**
 > 命令行是 `cli` SAPI，读 `/etc/php/8.x/cli/php.ini`；Web 上传走 `fpm-fcgi` SAPI，读 `/etc/php/8.x/fpm/php.ini`（外加各自的 `conf.d/`）。这是**两份独立文件**：把 CLI 那份改成 120M/128M，对上传毫无影响，于是就出现「命令行显示 120M/128M，但页面提示 2M/8M」。
-> 上传页顶部与失败提示里的数值来自 Web 进程 `ini_get()`，才是真实生效值；提示还会给出本次请求**实际加载的 php.ini 绝对路径**，照着改即可。
+> 上传失败提示里的数值来自 Web 进程 `ini_get()`，才是真实生效值；提示还会给出本次请求**实际加载的 php.ini 绝对路径**，照着改即可。
 > 另注：CLI 下 `max_execution_time` 恒显示 0、`max_input_time` 显示 -1，是 SAPI 硬编码，不代表配置没生效。
 
 #### Ubuntu apt 安装的 PHP：改 FPM 专用 ini
@@ -186,7 +186,7 @@ sudo nano /etc/php/8.2/fpm/php.ini
 sudo systemctl reload php8.2-fpm
 sudo nginx -t && sudo systemctl reload nginx
 
-# 4. 验证：刷新后台上传页看顶部实测值，或看失败提示里的「实际加载的 php.ini」
+# 4. 验证：用下方 _ini.php 探针确认 FPM 生效值（或看上传失败提示里的「实际加载的 php.ini」）
 ```
 
 若改完 `/etc/php/8.2/fpm/php.ini` 并 reload 后页面仍是 2M，检查优先级更高的覆盖项：
@@ -211,7 +211,7 @@ sudo rm -f /var/www/listen-book/public/_ini.php
 
 - **宝塔面板**：网站 → 设置 → 配置文件改 `client_max_body_size`；软件商店 → PHP → 配置修改 → 「上传限制」与 `post_max_size`，改完重启 PHP 服务。
 - **本地 LAMP（`my-lamp-project`）已配好**：`nginx.conf` 的 `http{}` 设了 `client_max_body_size 128m` + `fastcgi_read_timeout 300`；`php.ini` 由 `docker-compose.yml` 挂载到 `conf.d/zz-uploads.ini`，已 `nginx -s reload` + php-fpm `USR2` 热重载（未重启容器）。日后若重建 php 容器导致 nginx 502，执行 `docker exec my_nginx nginx -s reload`。
-- **诊断**：上传页顶部会显示 FPM 运行时实测的 `upload_max_filesize` / `post_max_size` 与单文件可用上限，低于 100MB 会红字告警；上传失败时验证消息会带出 PHP 错误码和这两个值（本工程已把 Laravel 默认英文 `The audio failed to upload.` 中文化），不用再猜。
+- **诊断**：上传页保持简洁、不显示运行时信息；上传失败时验证消息会带出 PHP 错误码、FPM 实测的 `upload_max_filesize` / `post_max_size` 与实际加载的 ini 路径（本工程已把 Laravel 默认英文 `The audio failed to upload.` 中文化）。平时要查看 FPM 生效值，用上方 `_ini.php` 临时探针（用完删除）。
 - 区分 PHP 层的另两种症状：`post_max_size` 过小 → `$_FILES` 为空、Laravel 报「音频文件 必填」；`upload_max_filesize` 过小 → `$_FILES['audio']['error'] = 1`。两者都不会是 413。
 
 #### 域名与 HTTPS：api.mixyj.cn
@@ -278,7 +278,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | 现象 | 根因 | 处理 |
 | --- | --- | --- |
 | **上传音频直接返回 `413 Request Entity Too Large`** | nginx `client_max_body_size` 默认 1m，请求体在到达 PHP 前被拒；Laravel 收不到请求、日志无记录。**封面能传、音频不能传**就是这个特征 | 按第 2 节「上传大小」改 nginx + php.ini 并 reload 两者 |
-| **`The audio failed to upload.`（英文）/ `上传失败：…`（中文诊断）** | 请求已到 Laravel，但 `$_FILES['audio']['error'] != 0` → 验证器自动触发 `uploaded` 规则。最常见是服务器 `upload_max_filesize` 仍是 2M，或改了 php.ini 没 reload php-fpm；`post_max_size` 过小则表现为 419 或「必填」 | 刷新上传页看顶部的 **「本次 Web 请求实测」**，按提示里给出的 php.ini 绝对路径修改（**不是** CLI 那份）并 `sudo systemctl reload php8.x-fpm`。命令行 `php -i` 显示 120M 而页面提示 2M，就是改错了文件，详见第 2 节。若仍显示英文提示，说明服务器跑的是旧代码，需先部署 `app/Http/Requests/` 下 4 个文件与 `tracks/index.blade.php` |
+| **`The audio failed to upload.`（英文）/ `上传失败：…`（中文诊断）** | 请求已到 Laravel，但 `$_FILES['audio']['error'] != 0` → 验证器自动触发 `uploaded` 规则。最常见是服务器 `upload_max_filesize` 仍是 2M，或改了 php.ini 没 reload php-fpm；`post_max_size` 过小则表现为 419 或「必填」 | 按失败提示里给出的 php.ini 绝对路径修改（**不是** CLI 那份）并 `sudo systemctl reload php8.x-fpm`；命令行 `php -i` 显示 120M 而失败提示 2M，就是改错了文件，详见第 2 节。若仍显示英文提示，说明服务器跑的是旧代码，需先部署 `app/Http/Requests/` 下的文件 |
 | `Error retrieving credentials from the instance profile metadata service`、`169.254.169.254`、`cURL error 28` | `.env` 里 `COS_SECRET_ID` / `COS_SECRET_KEY` 为空。Laravel 只在两者都非空时才把 `credentials` 传给 AWS SDK；缺了 SDK 就走默认凭证链去找 EC2 实例元数据，本地与轻量服务器没这个服务 → 1 秒超时 | 填真实密钥后 `php artisan config:clear`；或改 `AUDIO_DRIVER=local` 走挂载目录 |
 | `对象存储未配置：.env 里的 COS_XXX 为空` | 本工程的前置校验提前拦下（不会再等 IMDS 超时） | 同上 |
 | `COS_BUCKET 仍是 .env.example 的模板占位值` | 直接复制模板，没改桶名 | 把 `your-bucket-1250000000` 换成控制台真实桶名，`COS_CDN_DOMAIN` 同步换 |
