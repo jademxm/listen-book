@@ -4,16 +4,29 @@
 @section('content')
 <h1>音频管理</h1>
 
+@php
+    $loadedIni = php_ini_loaded_file();
+    $scannedIni = php_ini_scanned_files();
+    $maxFileBytes = \Illuminate\Http\UploadedFile::getMaxFilesize();
+@endphp
 <div class="card">
   <h2>上传音频</h2>
-  <p class="muted" style="font-size:12px">
-    当前 PHP-FPM 实测限制：upload_max_filesize = <b>{{ ini_get('upload_max_filesize') }}</b>，
-    post_max_size = <b>{{ ini_get('post_max_size') }}</b>，
-    单文件可用上限约 {{ round(\Illuminate\Http\UploadedFile::getMaxFilesize() / 1048576, 1) }}MB（业务上限 100MB）。
-    @if(\Illuminate\Http\UploadedFile::getMaxFilesize() < 100 * 1048576)
-      <span style="color:#c00">⚠ 当前限制低于业务上限，大音频会上传失败；按 README 第 2 节改 php.ini 并 reload php-fpm 后刷新本页确认。</span>
+  <div class="msg" style="background:#f3f6fa;color:#374151;font-size:12px;line-height:1.8;word-break:break-all">
+    <b>本次 Web 请求实测（不是命令行 php -i）</b><br>
+    SAPI：<b>{{ PHP_SAPI }}</b>　加载的 php.ini：<b>{{ $loadedIni ?: '未加载（编译默认值）' }}</b><br>
+    额外扫描的 .ini：{{ $scannedIni ?: '无' }}<br>
+    upload_max_filesize = <b>{{ ini_get('upload_max_filesize') }}</b>　
+    post_max_size = <b>{{ ini_get('post_max_size') }}</b>　
+    memory_limit = <b>{{ ini_get('memory_limit') }}</b>　
+    单文件可用上限约 {{ round($maxFileBytes / 1048576, 1) }}MB（业务上限 100MB）
+    @if($maxFileBytes < 100 * 1048576)
+      <div style="color:#c00;margin-top:6px">
+        ⚠ 当前 Web 进程限制低于业务上限，大音频会上传失败。请修改上面那份 php.ini（<b>不是 CLI 的</b>），
+        再执行 <code>sudo systemctl reload php8.x-fpm</code>（版本号按实际）并刷新本页确认；
+        若改完仍不生效，检查 <code>/etc/php/8.x/fpm/pool.d/*.conf</code> 是否有 <code>php_admin_value[upload_max_filesize]</code> 覆盖，见 README 第 2 节。
+      </div>
     @endif
-  </p>
+  </div>
   <form method="POST" action="{{ route('admin.tracks.store') }}" enctype="multipart/form-data" id="upload-form">
     @csrf
     <div class="row">
@@ -82,6 +95,23 @@
               </form>
               <form method="POST" action="{{ route('admin.tracks.destroy', $track) }}" class="inline" onsubmit="return confirm('确认移除该音频？')">@csrf @method('DELETE')
                 <button class="danger">移除</button>
+              </form>
+              <button type="button" class="ghost" onclick="toggleEdit('edit-track-{{ $track->id }}')">编辑</button>
+            </td>
+          </tr>
+          <tr class="edit-row" id="edit-track-{{ $track->id }}" style="display:none">
+            <td colspan="6">
+              <form method="POST" action="{{ route('admin.tracks.update', $track) }}" enctype="multipart/form-data" class="edit-form">
+                @csrf @method('PATCH')
+                <label>音频标题</label>
+                <input type="text" name="title" maxlength="150" value="{{ $track->title }}" required>
+                <label>封面（留空表示不修改）</label>
+                @if($track->cover_url)<div class="muted" style="font-size:12px;margin-bottom:6px">当前封面：<img class="thumb" src="{{ $track->cover_url }}" alt=""></div>@endif
+                <input type="file" name="cover" accept="image/jpeg,image/png,image/webp">
+                <div style="margin-top:12px">
+                  <button type="submit">保存</button>
+                  <button type="button" class="ghost" onclick="toggleEdit('edit-track-{{ $track->id }}')">取消</button>
+                </div>
               </form>
             </td>
           </tr>

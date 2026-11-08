@@ -12,6 +12,7 @@ use App\Services\CatalogService;
 use App\Services\ReorderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -103,7 +104,125 @@ class ListenBookApiTest extends TestCase
         $this->assertStringContainsString('upload_max_filesize', $message);
         $this->assertStringContainsString((string) ini_get('upload_max_filesize'), $message);
         $this->assertStringContainsString('reload php-fpm', $message);
+        $this->assertStringContainsString('SAPI=', $message);
+        $this->assertStringContainsString('实际加载的 php.ini', $message);
+        $this->assertStringContainsString(php_ini_loaded_file() ?: '未加载 php.ini（使用编译默认值）', $message);
 
         @unlink($tmp);
+    }
+
+    public function test_upload_page_reports_web_runtime_ini(): void
+    {
+        $this->withSession(['admin_auth' => true])
+            ->get('/admin/tracks')
+            ->assertOk()
+            ->assertSee('本次 Web 请求实测')
+            ->assertSee('加载的 php.ini')
+            ->assertSee((string) ini_get('upload_max_filesize'));
+    }
+
+    public function test_admin_can_update_album_and_unpublish_it(): void
+    {
+        $album = Album::create(['title' => '旧名称', 'description' => '旧简介', 'sort_order' => 1, 'status' => 1]);
+
+        $this->withSession(['admin_auth' => true])
+            ->patch('/admin/albums/'.$album->id, [
+                'title' => '新名称',
+                'description' => '新简介',
+                'status' => '0',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('albums', [
+            'id' => $album->id,
+            'title' => '新名称',
+            'description' => '新简介',
+            'status' => 0,
+        ]);
+
+        // 下架后小程序书库立即不可见（catalog 版本号已 bump）
+        $this->getJson('/api/v1/albums')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.list');
+    }
+
+    public function test_admin_can_replace_album_cover(): void
+    {
+        Storage::fake('cos');
+        // fake 只替换磁盘实例，不改 config；需同步把 driver 标成 local，跳过 s3 密钥自检
+        config([
+            'filesystems.disks.cos.driver' => 'local',
+            'services.cos.cdn_domain' => 'https://cdn.example.com',
+        ]);
+
+        $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
+        $tmp = tempnam(sys_get_temp_dir(), 'lb_');
+        file_put_contents($tmp, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
+        $cover = new \Illuminate\Http\UploadedFile($tmp, 'cover.png', 'image/png', null, true);
+
+        $this->withSession(['admin_auth' => true])
+            ->patch('/admin/albums/'.$album->id, ['cover' => $cover])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $url = (string) $album->fresh()->cover_url;
+        $this->assertStringStartsWith('https://cdn.example.com/cover/'.$album->id.'/', $url);
+        Storage::disk('cos')->assertExists(ltrim((string) parse_url($url, PHP_URL_PATH), '/'));
+
+        @unlink($tmp);
+    }
+
+    public function test_admin_can_update_track_title_and_cover(): void
+    {
+        Storage::fake('cos');
+        // fake 只替换磁盘实例，不改 config；需同步把 driver 标成 local，跳过 s3 密钥自检
+        config([
+            'filesystems.disks.cos.driver' => 'local',
+            'services.cos.cdn_domain' => 'https://cdn.example.com',
+        ]);
+
+        $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
+        $track = Track::create([
+            'album_id' => $album->id, 'title' => '旧标题', 'object_key' => 'audio/a.mp3',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+        $tmp = tempnam(sys_get_temp_dir(), 'lb_');
+        file_put_contents($tmp, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
+        $cover = new \Illuminate\Http\UploadedFile($tmp, 'cover.png', 'image/png', null, true);
+
+        $this->withSession(['admin_auth' => true])
+            ->patch('/admin/tracks/'.$track->id, ['title' => '新标题', 'cover' => $cover])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $track->refresh();
+        $this->assertSame('新标题', $track->title);
+        $this->assertStringStartsWith('https://cdn.example.com/cover/'.$album->id.'/', (string) $track->cover_url);
+        $this->assertSame('audio/a.mp3', $track->object_key); // 只改标题/封面，不动音频源
+
+        @unlink($tmp);
+    }
+
+    public function test_admin_pages_expose_edit_forms(): void
+    {
+        $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
+        Track::create([
+            'album_id' => $album->id, 'title' => '第一集', 'object_key' => 'audio/a.mp3',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+
+        $this->withSession(['admin_auth' => true])
+            ->get('/admin/albums')
+            ->assertOk()
+            ->assertSee('name="description"', false)
+            ->assertSee('name="status"', false)
+            ->assertSee('edit-album-'.$album->id, false);
+
+        $this->withSession(['admin_auth' => true])
+            ->get('/admin/tracks')
+            ->assertOk()
+            ->assertSee('封面（留空表示不修改）')
+            ->assertSee('edit-track-', false);
     }
 }

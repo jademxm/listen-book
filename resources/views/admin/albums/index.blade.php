@@ -21,7 +21,7 @@
 <div class="card">
   <h2>专辑列表（拖动行调整顺序，插到目标行之前）</h2>
   <table>
-    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">音频数</th><th style="width:140px">操作</th></tr></thead>
+    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">音频数</th><th style="width:170px">操作</th></tr></thead>
     <tbody>
       @forelse($albums as $album)
         <tr draggable="true" data-id="{{ $album->id }}">
@@ -29,7 +29,40 @@
           <td>@if($album->cover_url)<img class="thumb" src="{{ $album->cover_url }}" alt="">@endif</td>
           <td>{{ $album->title }}<div class="muted" style="font-size:12px">{{ $album->description }}</div></td>
           <td>{{ $album->tracks_count }}</td>
-          <td><a class="btn ghost" href="{{ route('admin.tracks.index', ['album_id' => $album->id]) }}">查看音频</a></td>
+          <td>
+            <a class="btn ghost" href="{{ route('admin.tracks.index', ['album_id' => $album->id]) }}">查看音频</a>
+            <button type="button" class="ghost" onclick="toggleEdit('edit-album-{{ $album->id }}')">编辑</button>
+            <div class="muted" style="font-size:12px">{{ $album->status ? '已上架' : '已下架' }}</div>
+          </td>
+        </tr>
+        <tr class="edit-row" id="edit-album-{{ $album->id }}" style="display:none">
+          <td colspan="5">
+            <form method="POST" action="{{ route('admin.albums.update', $album) }}" enctype="multipart/form-data" class="edit-form">
+              @csrf @method('PATCH')
+              <div class="row">
+                <div>
+                  <label>专辑名称</label>
+                  <input type="text" name="title" maxlength="120" value="{{ $album->title }}" required>
+                </div>
+                <div>
+                  <label>状态</label>
+                  <select name="status">
+                    <option value="1" @selected($album->status === 1)>已上架</option>
+                    <option value="0" @selected($album->status === 0)>已下架</option>
+                  </select>
+                </div>
+              </div>
+              <label>简介</label>
+              <input type="text" name="description" maxlength="500" value="{{ $album->description }}">
+              <label>封面（留空表示不修改）</label>
+              @if($album->cover_url)<div class="muted" style="font-size:12px;margin-bottom:6px">当前封面：<img class="thumb" src="{{ $album->cover_url }}" alt=""></div>@endif
+              <input type="file" name="cover" accept="image/jpeg,image/png,image/webp">
+              <div style="margin-top:12px">
+                <button type="submit">保存</button>
+                <button type="button" class="ghost" onclick="toggleEdit('edit-album-{{ $album->id }}')">取消</button>
+              </div>
+            </form>
+          </td>
         </tr>
       @empty
         <tr><td colspan="5" class="muted">还没有专辑，先创建一个。</td></tr>

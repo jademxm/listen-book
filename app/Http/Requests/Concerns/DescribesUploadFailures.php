@@ -30,7 +30,20 @@ trait DescribesUploadFailures
                 : '未知上传错误（code=' . var_export($error, true) . '）',
         };
 
-        return "上传失败：{$reason}。当前 PHP-FPM 限制 upload_max_filesize={$single}、post_max_size={$post}；改完 php.ini 必须 reload php-fpm，详见 README 第 3 节。";
+        return "上传失败：{$reason}。当前 Web 进程限制 upload_max_filesize={$single}、post_max_size={$post}；{$this->phpRuntimeHint()}详见 README 第 3 节。";
+    }
+
+    /**
+     * 上传限制由 Web 请求的 SAPI 决定，命令行 php -i 读的是另一份 php.ini。
+     * 把实际加载的 ini 路径写进提示，避免改错文件后反复排查。
+     */
+    protected function phpRuntimeHint(): string
+    {
+        $ini = php_ini_loaded_file();
+        $iniLabel = $ini === false ? '未加载 php.ini（使用编译默认值）' : $ini;
+
+        return '本次请求 SAPI='.PHP_SAPI.'，实际加载的 php.ini：'.$iniLabel
+            .'。命令行 php -i 属于 CLI 的另一份配置，不能代表上传限制；改完上面这份文件必须 reload php-fpm（若仍不生效，检查 FPM pool 的 php_admin_value 覆盖）。';
     }
 
     /**

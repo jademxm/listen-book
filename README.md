@@ -157,16 +157,119 @@ max_input_time      = 300
 ```
 
 ```bash
-nginx -t && nginx -s reload
-systemctl reload php-fpm        # 也可能是 php8.2-fpm / service php-fpm reload，按实际版本
-php -i | grep -E 'upload_max_filesize|post_max_size'
-# 注：CLI 下 max_execution_time 恒显示 0 / max_input_time 显示 -1，是 SAPI 硬编码，不代表配置没生效
+sudo nginx -t && sudo nginx -s reload
+sudo systemctl reload php8.2-fpm   # 也可能是 php-fpm / php8.1-fpm，按实际版本
+# 验证：刷新后台「音频」上传页，看顶部「本次 Web 请求实测」；不要用 php -i（原因见下）
 ```
+
+> ⚠ **`sudo -u www-data php -i | grep -E "upload_max_filesize|post_max_size"` 不能用来判断上传限制。**
+> 命令行是 `cli` SAPI，读 `/etc/php/8.x/cli/php.ini`；Web 上传走 `fpm-fcgi` SAPI，读 `/etc/php/8.x/fpm/php.ini`（外加各自的 `conf.d/`）。这是**两份独立文件**：把 CLI 那份改成 120M/128M，对上传毫无影响，于是就出现「命令行显示 120M/128M，但页面提示 2M/8M」。
+> 上传页顶部与失败提示里的数值来自 Web 进程 `ini_get()`，才是真实生效值；提示还会给出本次请求**实际加载的 php.ini 绝对路径**，照着改即可。
+> 另注：CLI 下 `max_execution_time` 恒显示 0、`max_input_time` 显示 -1，是 SAPI 硬编码，不代表配置没生效。
+
+#### Ubuntu apt 安装的 PHP：改 FPM 专用 ini
+
+```bash
+# 1. 确认站点实际用的 FPM 版本（装了多个 PHP 版本时最容易改错）
+grep -R 'fastcgi_pass' /etc/nginx/sites-enabled/
+systemctl list-units --type=service | grep fpm
+
+# 2. 改 FPM 专用配置（下面以 8.2 为例，按上一步结果替换）
+sudo nano /etc/php/8.2/fpm/php.ini
+#    upload_max_filesize = 110M
+#    post_max_size       = 128M
+#    memory_limit        = 256M
+#    max_execution_time  = 300
+#    max_input_time      = 300
+
+# 3. FPM 是常驻进程，改完必须 reload，否则永远读旧值
+sudo systemctl reload php8.2-fpm
+sudo nginx -t && sudo systemctl reload nginx
+
+# 4. 验证：刷新后台上传页看顶部实测值，或看失败提示里的「实际加载的 php.ini」
+```
+
+若改完 `/etc/php/8.2/fpm/php.ini` 并 reload 后页面仍是 2M，检查优先级更高的覆盖项：
+
+```bash
+# pool 级 php_admin_value 会覆盖 php.ini，且不能被 ini_set 改写
+grep -Rni 'php_admin_value\|php_value' /etc/php/8.2/fpm/pool.d/ | grep -Ei 'upload|post_max|memory'
+# 站点 nginx 配置里的 fastcgi_param PHP_VALUE / PHP_ADMIN_VALUE 同理
+```
+
+清掉覆盖项后 `sudo systemctl restart php8.2-fpm`（`php_admin_value` 变更通常需要 restart 而非 reload）。
+
+不部署新代码也能确认 FPM 到底读了哪份配置（路径按站点实际 `public/` 调整，**用完务必删除**）：
+
+```bash
+echo '<?php echo "SAPI=".PHP_SAPI."\nini=".var_export(php_ini_loaded_file(),true)."\nscan=".var_export(php_ini_scanned_files(),true)."\nupload=".ini_get("upload_max_filesize")."\npost=".ini_get("post_max_size")."\n";' | sudo tee /var/www/listen-book/public/_ini.php
+curl -s https://api.mixyj.cn/_ini.php
+sudo rm -f /var/www/listen-book/public/_ini.php
+```
+
+`SAPI=fpm-fcgi` 说明走对了进程，输出里的 `ini=` 就是必须修改的那份文件。
 
 - **宝塔面板**：网站 → 设置 → 配置文件改 `client_max_body_size`；软件商店 → PHP → 配置修改 → 「上传限制」与 `post_max_size`，改完重启 PHP 服务。
 - **本地 LAMP（`my-lamp-project`）已配好**：`nginx.conf` 的 `http{}` 设了 `client_max_body_size 128m` + `fastcgi_read_timeout 300`；`php.ini` 由 `docker-compose.yml` 挂载到 `conf.d/zz-uploads.ini`，已 `nginx -s reload` + php-fpm `USR2` 热重载（未重启容器）。日后若重建 php 容器导致 nginx 502，执行 `docker exec my_nginx nginx -s reload`。
 - **诊断**：上传页顶部会显示 FPM 运行时实测的 `upload_max_filesize` / `post_max_size` 与单文件可用上限，低于 100MB 会红字告警；上传失败时验证消息会带出 PHP 错误码和这两个值（本工程已把 Laravel 默认英文 `The audio failed to upload.` 中文化），不用再猜。
 - 区分 PHP 层的另两种症状：`post_max_size` 过小 → `$_FILES` 为空、Laravel 报「音频文件 必填」；`upload_max_filesize` 过小 → `$_FILES['audio']['error'] = 1`。两者都不会是 413。
+
+#### 域名与 HTTPS：api.mixyj.cn
+
+小程序 `miniprogram/services/config.js` 的 `API_BASE` 与 `.env.example` 的 `APP_URL` 都写死 `https://api.mixyj.cn`，**这个域名不通 HTTPS，真机体验版所有请求都会失败**。现成配置在交付目录 `deploy/nginx/api.mixyj.cn.conf`（不在 `backend/` 内），按现有 `php8.4-fpm` socket 与 `root /var/www/listen-book/public` 对齐，保留原有 PHP 转发写法，只补 80 跳转、443、ACME 校验与 `fastcgi_read_timeout 300`。
+
+**只需要 `api.mixyj.cn` 一个域名**：后台 `/admin/login` 与接口 `/api/v1/*` 由 `routes/web.php`（`admin.php`）和 `routes/api.php`（`api.v1.php`）挂到同一个 Laravel 入口 `public/index.php`，nginx 里一个 `server_name` + `location / try_files` 就能同时服务两者，不需要给后台单独开域名或 server。`downloadFile` 合法域名填 COS 桶域名是音频直链的用途，与业务域名无关。
+
+微信官方对证书的要求：**必须被系统信任**（不能用自签证书）、**证书域名与访问域名一致**、**在有效期内**、**服务器配置的信任链完整**、**TLS 1.2 及以上**（iOS 还需满足 ATS）。因此 nginx 里 `ssl_certificate` 必须用 `fullchain.pem`（或腾讯云下载的 `_bundle.crt`），只配站点证书 `cert.pem` 会因链不完整在 iOS 上失败；`ssl_protocols TLSv1.2 TLSv1.3;` 即可，不要为兼容旧 Android 去开 TLS 1.0/1.1。
+
+配置必须分三阶段。**先把含 443 的 `api.mixyj.cn.conf` 放上去，会在证书签发前就报 `cannot load certificate ".../fullchain.pem": No such file or directory`**；此时 `nginx -t` 失败会让 `&&` 后面的 `reload` 不执行，线上仍跑旧配置、服务不中断，按阶段 1 换成纯 80 的 `00-http-only.conf` 即可恢复。
+
+```bash
+# ===== 阶段 0：DNS + 防火墙 =====
+# mixyj.cn 加一条 A 记录 api → 43.133.250.32；腾讯云轻量控制台「防火墙」放行 TCP 443
+dig +short api.mixyj.cn
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+
+# ===== 阶段 1：纯 80 引导 =====
+# 本地执行：scp deploy/nginx/00-http-only.conf ubuntu@43.133.250.32:/tmp/listen.conf
+sudo cp /tmp/listen.conf /etc/nginx/sites-available/listen
+sudo nginx -t && sudo systemctl reload nginx
+curl -I http://api.mixyj.cn
+# 确认 ACME 目录可读（输出 ok 再签证书）
+sudo mkdir -p /var/www/listen-book/public/.well-known/acme-challenge
+echo ok | sudo tee /var/www/listen-book/public/.well-known/acme-challenge/probe >/dev/null
+curl -s http://api.mixyj.cn/.well-known/acme-challenge/probe
+sudo rm -f /var/www/listen-book/public/.well-known/acme-challenge/probe
+
+# ===== 阶段 2：签证书（snap 安装，自带 systemd timer 续期）=====
+sudo apt update && sudo apt install -y snapd
+sudo snap install core && sudo snap refresh core
+sudo snap install --classic certbot
+sudo ln -sf /snap/bin/certbot /usr/bin/certbot
+sudo certbot certonly --webroot -w /var/www/listen-book/public -d api.mixyj.cn \
+  --agree-tos -m 你的邮箱 --no-eff-email
+sudo certbot renew --dry-run
+
+# ===== 阶段 3：换成完整配置启用 HTTPS =====
+# 本地执行：scp deploy/nginx/api.mixyj.cn.conf ubuntu@43.133.250.32:/tmp/listen.conf
+sudo cp /tmp/listen.conf /etc/nginx/sites-available/listen
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+> `00-http-only.conf` 不做 301 跳转、保留 PHP 转发，签证书期间后台仍可用 http 访问；换成 `api.mixyj.cn.conf` 后 80 才统一跳 https。
+> 若用腾讯云免费 DV 证书替代 certbot：控制台申请后下载 **nginx 版**，把 `*_bundle.crt`（含中间链）与 `*.key` 放到 `/etc/nginx/ssl/`，改配置里那两行路径，跳过阶段 2，其余相同。
+> 大陆服务器要求域名已做**腾讯云接入备案**，未备案时 80/443 会被拦截；`mixyj.cn` 已备案，新增子域名一般直接继承，若 80/443 不通先查备案接入商。
+
+最后三项：
+
+- mp 后台「request 合法域名」填 `https://api.mixyj.cn`（不带路径、不带端口，微信不支持父域名/泛域名）；`downloadFile` 填 COS 域名，见第 6 节。
+- `.env` 设 `APP_ENV=production`、`APP_DEBUG=false`、`APP_URL=https://api.mixyj.cn`，执行 `php artisan config:clear`。`AppServiceProvider` 在 production 会 `URL::forceScheme('https')`，配合 nginx 的 `fastcgi_param HTTPS on`，后台生成的链接不会退回 http。
+- 验证：
+  ```bash
+  curl -I http://api.mixyj.cn                      # 301 → https
+  curl -s https://api.mixyj.cn/api/v1/bootstrap   # {"code":0,...}
+  openssl s_client -connect api.mixyj.cn:443 -servername api.mixyj.cn </dev/null 2>/dev/null | openssl x509 -noout -subject -dates
+  ```
 
 ## 3. 上传排错
 
@@ -175,7 +278,7 @@ php -i | grep -E 'upload_max_filesize|post_max_size'
 | 现象 | 根因 | 处理 |
 | --- | --- | --- |
 | **上传音频直接返回 `413 Request Entity Too Large`** | nginx `client_max_body_size` 默认 1m，请求体在到达 PHP 前被拒；Laravel 收不到请求、日志无记录。**封面能传、音频不能传**就是这个特征 | 按第 2 节「上传大小」改 nginx + php.ini 并 reload 两者 |
-| **`The audio failed to upload.`（英文）/ `上传失败：…`（中文诊断）** | 请求已到 Laravel，但 `$_FILES['audio']['error'] != 0` → 验证器自动触发 `uploaded` 规则。最常见是服务器 `upload_max_filesize` 仍是 2M，或改了 php.ini 没 reload php-fpm；`post_max_size` 过小则表现为 419 或「必填」 | 刷新上传页看顶部的 **PHP-FPM 实测限制**；按第 2 节改 php.ini 并 `systemctl reload php-fpm`。若仍显示英文提示，说明服务器跑的是旧代码，需先部署 `app/Http/Requests/` 下 4 个文件与 `tracks/index.blade.php` |
+| **`The audio failed to upload.`（英文）/ `上传失败：…`（中文诊断）** | 请求已到 Laravel，但 `$_FILES['audio']['error'] != 0` → 验证器自动触发 `uploaded` 规则。最常见是服务器 `upload_max_filesize` 仍是 2M，或改了 php.ini 没 reload php-fpm；`post_max_size` 过小则表现为 419 或「必填」 | 刷新上传页看顶部的 **「本次 Web 请求实测」**，按提示里给出的 php.ini 绝对路径修改（**不是** CLI 那份）并 `sudo systemctl reload php8.x-fpm`。命令行 `php -i` 显示 120M 而页面提示 2M，就是改错了文件，详见第 2 节。若仍显示英文提示，说明服务器跑的是旧代码，需先部署 `app/Http/Requests/` 下 4 个文件与 `tracks/index.blade.php` |
 | `Error retrieving credentials from the instance profile metadata service`、`169.254.169.254`、`cURL error 28` | `.env` 里 `COS_SECRET_ID` / `COS_SECRET_KEY` 为空。Laravel 只在两者都非空时才把 `credentials` 传给 AWS SDK；缺了 SDK 就走默认凭证链去找 EC2 实例元数据，本地与轻量服务器没这个服务 → 1 秒超时 | 填真实密钥后 `php artisan config:clear`；或改 `AUDIO_DRIVER=local` 走挂载目录 |
 | `对象存储未配置：.env 里的 COS_XXX 为空` | 本工程的前置校验提前拦下（不会再等 IMDS 超时） | 同上 |
 | `COS_BUCKET 仍是 .env.example 的模板占位值` | 直接复制模板，没改桶名 | 把 `your-bucket-1250000000` 换成控制台真实桶名，`COS_CDN_DOMAIN` 同步换 |
@@ -229,9 +332,10 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 | --- | --- | --- |
 | GET/POST | `/admin/login` | 登录 |
 | POST | `/admin/logout` | 退出 |
-| GET/POST | `/admin/albums` | 专辑列表 / 新建 |
+| GET/POST | `/admin/albums` | 专辑列表 / 新建；列表行内「编辑」可改名称、简介、封面、上下架 |
+| PATCH | `/admin/albums/{id}` | `{title, description, cover?, status}`，封面留空不修改 |
 | POST | `/admin/albums/reorder` | `{album_id, target_id}` |
-| GET/POST | `/admin/tracks` | 音频列表（搜索/试听）/ 上传 |
+| GET/POST | `/admin/tracks` | 音频列表（搜索/试听）/ 上传；列表行内「编辑」可改标题、封面 |
 | PATCH | `/admin/tracks/{id}` | 标题、封面、上下架 |
 | DELETE | `/admin/tracks/{id}` | 软删 |
 | POST | `/admin/tracks/reorder` | `{album_id, track_id, target_id}`，插到 target 之前，target 为空则移到末尾 |
@@ -245,6 +349,7 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 - 单文件 `multipart` 直传，扩展名白名单 `mp3/m4a/aac/wav` + 文件头签名校验 + ≤100MB；object key 由服务端用 ULID 生成，不使用原始文件名。
 - **时长由上传页浏览器**通过 `<audio>` 的 `loadedmetadata` 读取后随表单提交（`duration_sec`），服务端不依赖 ffmpeg / 队列；读不到则存 `null`，小程序显示 `--:--`。
 - 上传失败会清理已写入 COS 的孤儿对象；音频删除为软删，COS 对象保留便于恢复。
+- 列表行内编辑封面时**留空表示不修改**；换新封面只覆盖 `cover_url`，旧的 COS 对象保留（不做自动清理）。编辑表单放在独立的非拖拽行里，避免与拖动排序抢事件。
 - 所有后台写操作都会 `CatalogService::bump()`，版本号参与缓存键，小程序按版本戳自动拉新数据，无需手动清缓存。
 
 ---

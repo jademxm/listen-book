@@ -22,6 +22,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/albums', [AlbumController::class, 'index'])->name('albums.index');
         Route::post('/albums', [AlbumController::class, 'store'])->name('albums.store');
         Route::post('/albums/reorder', [ReorderController::class, 'albums'])->name('albums.reorder');
+        Route::patch('/albums/{album}', [AlbumController::class, 'update'])->name('albums.update')->whereNumber('album');
 
         Route::get('/tracks', [TrackController::class, 'index'])->name('tracks.index');
         Route::post('/tracks', [TrackController::class, 'store'])->name('tracks.store');

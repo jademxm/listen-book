@@ -36,6 +36,9 @@ tr.drag-over { background:#eef6fd; }
 .row > div { min-width:160px; }
 audio { height:32px; max-width:220px; }
 img.thumb { width:40px; height:40px; object-fit:cover; border-radius:4px; background:#f3f4f6; }
+tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
+.edit-form { max-width:640px; }
+.edit-form .row > div { flex:1; }
 </style>
 </head>
 <body>
@@ -52,6 +55,10 @@ img.thumb { width:40px; height:40px; object-fit:cover; border-radius:4px; backgr
 </main>
 <script>
 window.csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+window.toggleEdit = function (id) {
+  const row = document.getElementById(id);
+  if (row) row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row';
+};
 window.postJson = async function (url, body) {
   const res = await fetch(url, {
     method: 'POST',

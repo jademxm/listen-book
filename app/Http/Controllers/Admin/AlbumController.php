@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreAlbumRequest;
+use App\Http\Requests\UpdateAlbumRequest;
 use App\Models\Album;
 use App\Services\AudioStorageService;
 use App\Services\CatalogService;
@@ -53,5 +54,30 @@ class AlbumController extends Controller
         CatalogService::bump();
 
         return back()->with('status', '专辑已创建');
+    }
+
+    public function update(UpdateAlbumRequest $request, Album $album, AudioStorageService $storage): RedirectResponse
+    {
+        $data = $request->validated();
+        $coverKey = null;
+
+        try {
+            if ($request->hasFile('cover')) {
+                $coverKey = $storage->storeCover($request->file('cover'), $album->id);
+                if ($coverKey) {
+                    $data['cover_url'] = $storage->toUrl($coverKey);
+                }
+            }
+            unset($data['cover']);
+            $album->update($data);
+        } catch (InvalidArgumentException|RuntimeException $e) {
+            $storage->deleteQuietly($coverKey);
+
+            return back()->withErrors(['cover' => $e->getMessage()]);
+        }
+
+        CatalogService::bump();
+
+        return back()->with('status', '专辑已更新');
     }
 }
