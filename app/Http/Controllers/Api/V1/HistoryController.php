@@ -24,7 +24,7 @@ class HistoryController extends Controller
             ->where('wx_user_id', $request->user()->id)
             ->whereHas('track', fn ($q) => $q->where('status', 1))
             ->with([
-                'track' => fn ($q) => $q->select('id', 'album_id', 'title', 'cover_url', 'object_key', 'duration_sec', 'status')
+                'track' => fn ($q) => $q->select('id', 'album_id', 'title', 'cover_url', 'cover_key', 'object_key', 'duration_sec', 'status')
                     ->with('album:id,title'),
             ])
             ->orderByDesc('last_played_at')

@@ -54,7 +54,7 @@ class TrackController extends Controller
             Track::create([
                 'album_id' => $albumId,
                 'title' => $data['title'],
-                'cover_url' => $storage->toUrl($coverKey),
+                'cover_key' => $coverKey,
                 'object_key' => $audioKey,
                 'mime' => $audio['mime'],
                 'size_bytes' => $audio['size_bytes'],
@@ -84,7 +84,7 @@ class TrackController extends Controller
             if ($request->hasFile('cover')) {
                 $coverKey = $storage->storeCover($request->file('cover'), $track->album_id);
                 if ($coverKey) {
-                    $data['cover_url'] = $storage->toUrl($coverKey);
+                    $data['cover_key'] = $coverKey;
                 }
             }
             unset($data['cover']);

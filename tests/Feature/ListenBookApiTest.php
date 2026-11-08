@@ -10,6 +10,7 @@ use App\Models\Track;
 use App\Models\WxUser;
 use App\Services\CatalogService;
 use App\Services\ReorderService;
+use App\Support\CoverUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -169,6 +170,7 @@ class ListenBookApiTest extends TestCase
 
         $url = (string) $album->fresh()->cover_url;
         $this->assertStringStartsWith('https://cdn.example.com/cover/'.$album->id.'/', $url);
+        $this->assertStringStartsWith('cover/'.$album->id.'/', (string) $album->fresh()->cover_key);
         Storage::disk('cos')->assertExists(ltrim((string) parse_url($url, PHP_URL_PATH), '/'));
 
         @unlink($tmp);
@@ -200,6 +202,7 @@ class ListenBookApiTest extends TestCase
         $track->refresh();
         $this->assertSame('新标题', $track->title);
         $this->assertStringStartsWith('https://cdn.example.com/cover/'.$album->id.'/', (string) $track->cover_url);
+        $this->assertStringStartsWith('cover/'.$album->id.'/', (string) $track->cover_key);
         $this->assertSame('audio/a.mp3', $track->object_key); // 只改标题/封面，不动音频源
 
         @unlink($tmp);
@@ -225,5 +228,100 @@ class ListenBookApiTest extends TestCase
             ->assertOk()
             ->assertSee('封面（留空表示不修改）')
             ->assertSee('edit-track-', false);
+    }
+
+    public function test_cover_url_follows_cdn_domain_without_db_changes(): void
+    {
+        config(['services.cos.cdn_domain' => 'https://old-bucket.example.com']);
+
+        $album = Album::create([
+            'title' => '测试专辑', 'cover_key' => 'cover/1/a.png',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+        $track = Track::create([
+            'album_id' => $album->id, 'title' => '第一集', 'object_key' => 'audio/a.mp3',
+            'cover_key' => 'cover/1/b.png', 'sort_order' => 1, 'status' => 1,
+        ]);
+
+        $this->assertSame('https://old-bucket.example.com/cover/1/a.png', $album->cover_url);
+        $this->assertSame('https://old-bucket.example.com/cover/1/b.png', $track->cover_url);
+
+        // 只改配置（等价于换 .env 换桶），不刷库：模型与 API 输出立即切到新桶
+        config(['services.cos.cdn_domain' => 'https://new-bucket.example.com']);
+        Cache::flush();
+
+        $this->assertSame('https://new-bucket.example.com/cover/1/a.png', $album->fresh()->cover_url);
+        $this->getJson('/api/v1/albums')
+            ->assertOk()
+            ->assertJsonPath('data.list.0.cover_url', 'https://new-bucket.example.com/cover/1/a.png');
+        $this->getJson('/api/v1/albums/'.$album->id.'/tracks')
+            ->assertOk()
+            ->assertJsonPath('data.list.0.cover_url', 'https://new-bucket.example.com/cover/1/b.png');
+    }
+
+    public function test_legacy_cover_url_without_key_is_returned_as_is(): void
+    {
+        config(['services.cos.cdn_domain' => 'https://new-bucket.example.com']);
+
+        $album = Album::create([
+            'title' => '旧数据',
+            'cover_url' => 'https://legacy.example.com/cover/9/old.png',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+
+        $this->assertNull($album->fresh()->cover_key);
+        $this->assertSame('https://legacy.example.com/cover/9/old.png', $album->fresh()->cover_url);
+    }
+
+    public function test_backfill_derives_cover_key_from_legacy_url(): void
+    {
+        config([
+            'services.cos.cdn_domain' => 'https://new-bucket.example.com',
+            'filesystems.disks.cos.bucket' => 'listen-nanjing-1302593534',
+        ]);
+
+        $album = Album::create([
+            'title' => '旧专辑',
+            'cover_url' => 'https://listen-nanjing-1302593534.cos.ap-nanjing.myqcloud.com/cover/3/01M6V9.png',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+        $track = Track::create([
+            'album_id' => $album->id, 'title' => '旧音频', 'object_key' => 'audio/a.mp3',
+            'cover_url' => 'cover/3/01M6V8.png', // 已是相对 key 的历史值
+            'sort_order' => 1, 'status' => 1,
+        ]);
+
+        $this->assertSame(2, CoverUrl::backfill('albums') + CoverUrl::backfill('tracks'));
+
+        $this->assertSame('cover/3/01M6V9.png', $album->fresh()->cover_key);
+        $this->assertSame('cover/3/01M6V8.png', $track->fresh()->cover_key);
+        $this->assertSame('https://new-bucket.example.com/cover/3/01M6V9.png', $album->fresh()->cover_url);
+
+        // path-style 老 URL 与空值边界
+        $this->assertSame('cover/3/x.png', CoverUrl::keyFrom('https://cos.ap-nanjing.myqcloud.com/listen-nanjing-1302593534/cover/3/x.png'));
+        $this->assertNull(CoverUrl::keyFrom(null));
+        $this->assertNull(CoverUrl::keyFrom('https://example.com'));
+    }
+
+    public function test_history_returns_cover_url_from_cover_key(): void
+    {
+        config(['services.cos.cdn_domain' => 'https://new-bucket.example.com']);
+
+        $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
+        $track = Track::create([
+            'album_id' => $album->id, 'title' => '第一集', 'object_key' => 'audio/a.mp3',
+            'cover_key' => 'cover/1/h.png', 'sort_order' => 1, 'status' => 1, 'duration_sec' => 600,
+        ]);
+        $user = WxUser::create(['openid' => 'openid-cover-test']);
+        Sanctum::actingAs($user, ['*'], 'wx');
+
+        $this->postJson('/api/v1/me/histories', [
+            'track_id' => $track->id, 'progress_sec' => 30, 'duration_sec' => 600,
+        ])->assertOk();
+
+        // HistoryController 是显式 select，漏选 cover_key 会导致这里退回旧 URL / null
+        $this->getJson('/api/v1/me/histories')
+            ->assertOk()
+            ->assertJsonPath('data.list.0.track.cover_url', 'https://new-bucket.example.com/cover/1/h.png');
     }
 }

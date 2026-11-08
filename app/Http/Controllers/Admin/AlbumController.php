@@ -40,7 +40,9 @@ class AlbumController extends Controller
 
             if ($request->hasFile('cover')) {
                 $coverKey = $storage->storeCover($request->file('cover'), $album->id);
-                $album->update(['cover_url' => $storage->toUrl($coverKey)]);
+                if ($coverKey) {
+                    $album->update(['cover_key' => $coverKey]);
+                }
             }
         } catch (InvalidArgumentException|RuntimeException $e) {
             $storage->deleteQuietly($coverKey);
@@ -65,7 +67,7 @@ class AlbumController extends Controller
             if ($request->hasFile('cover')) {
                 $coverKey = $storage->storeCover($request->file('cover'), $album->id);
                 if ($coverKey) {
-                    $data['cover_url'] = $storage->toUrl($coverKey);
+                    $data['cover_key'] = $coverKey;
                 }
             }
             unset($data['cover']);

@@ -31,6 +31,8 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 
 首次 `migrate` 会建 8 张表：Laravel 标准 4 张（`users`、`password_reset_tokens`、`failed_jobs`、`personal_access_tokens`）+ 业务 4 张（`albums`、`tracks`、`wx_users`、`play_histories`）。
 
+> **升级已有部署**：每次更新代码后执行 `php artisan migrate`。`2026_11_08_000001_add_cover_key_to_albums_and_tracks_table` 会给 `albums` / `tracks` 加 `cover_key` 列，并把历史 `cover_url` 里的完整 URL 反推成 object key 回填。只加列、不删列、不删数据，执行前建议备份。
+
 ---
 
 ## 2. 配置
@@ -47,7 +49,7 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 | `WX_APPID` / `WX_SECRET` | AppID 已填；AppSecret 在 mp 后台生成，**只存服务端** |
 | `ADMIN_PASSWORD` | 后台登录密码，单管理员 session，务必设强密码 |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_REGION` / `COS_BUCKET` / `COS_ENDPOINT` | 控制台「访问密钥 / 存储桶」取值；`COS_BUCKET` 形如 `name-1250000000`（含 AppId 后缀）；endpoint 用 `https://cos.<region>.myqcloud.com`；**前两项必填，留空上传会报 IMDS 超时，见第 3 节** |
-| `COS_CDN_DOMAIN` | **音频对外访问根地址**，不带路径/结尾斜杠。路径 A 填 bucket 默认访问域名 `https://<bucket>.cos.<region>.myqcloud.com`；路径 B 填自有域名 `https://cos.mixyj.cn`。它同时是小程序 `downloadFile` 合法域名。**`COS_BUCKET` / `COS_REGION` / `COS_ENDPOINT` / `COS_CDN_DOMAIN` 四项必须指向同一地域同一桶** |
+| `COS_CDN_DOMAIN` | **音频与封面共用的对外访问根地址**，不带路径/结尾斜杠。当前填标准 COS 的 bucket 默认访问域名 `https://<bucket>.cos.<region>.myqcloud.com`；路径 B 或日后启用自定义域名时填 `https://cos.mixyj.cn`。它同时是小程序 `downloadFile` 合法域名。**封面与音频 URL 都由它动态拼接，换桶/换域名只改这一项，不用刷数据库**。**`COS_BUCKET` / `COS_REGION` / `COS_ENDPOINT` / `COS_CDN_DOMAIN` 四项必须指向同一地域同一桶** |
 | `AUDIO_DRIVER` | `s3`（默认，S3 兼容接口）/ `local`（服务器挂载目录）。业务代码 `Storage::disk('cos')` 不变；切换后执行 `php artisan config:clear` |
 | `AUDIO_LOCAL_ROOT` | 仅 `local` 模式：轻量对象存储一键挂载到服务器的目录，如 `/mnt/lightcos` |
 | `COS_USE_PATH_STYLE` | 可选，默认 `false`；上传报 403/域名异常时改 `true` |
@@ -66,9 +68,11 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 
 改完配置执行 `php artisan config:clear`。
 
-### 轻量对象存储：先分清两个控制台
+### 对象存储：标准 COS 与轻量存储的差别
 
-腾讯云有两个名字近似的产品，**以控制台入口判定，不要看商品名**：
+**当前部署使用腾讯云标准对象存储 COS + bucket 默认访问域名**，`AUDIO_DRIVER=s3` 走 S3 兼容接口。标准 COS 与轻量对象存储用同一套 S3 API、同样的 endpoint 格式、同样的 `<bucket>-<AppId>` 桶名，业务代码无需区分；差别只在控制台能力与默认域名限速。
+
+腾讯云有两个名字近似的轻量产品，**以控制台入口判定，不要看商品名**（日后回退到轻量存储时参考）：
 
 | 控制台入口 | 产品 | 自定义域名 | 默认（体验）域名 |
 | --- | --- | --- | --- |
@@ -77,7 +81,7 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 
 > 官方快速入门原文：存储桶**默认为私有读写，不允许公开访问**；体验域名「限制下载频率不超过 10QPS，无加速效果，仅适合用于测试」，自定义域名「支持 30000QPS，享受访问加速，且不额外收取加速费用」。
 > 两个产品的共同点：**桶默认私有读写**。上传成功但链接 403 都是因为它，处理见第 3 节。
-> 本工程当前用 bucket 默认访问域名；若你在 lightcos 控制台配好了自定义域名，把 `COS_CDN_DOMAIN` 改成 `https://cos.mixyj.cn` 即可，业务代码不用动。
+> 本工程当前用**标准 COS 的 bucket 默认访问域名**。标准 COS 支持自定义源站域名 / CDN 加速（需域名已备案 + CNAME + 证书），要启用时把 `COS_CDN_DOMAIN` 改成 `https://cos.mixyj.cn` 即可，业务代码和数据库都不用动。
 
 两条路径任选，**业务代码都不用改**：
 
@@ -96,9 +100,50 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
    ```
 
 4. mp 后台「downloadFile 合法域名」填与 `COS_CDN_DOMAIN` **完全一致的完整 host**。微信官方明确「不支持配置父域名，使用子域名」，地域根域名 `https://cos.<Region>.myqcloud.com` **不能代替** bucket 子域名，填了不生效。腾讯云 `*.myqcloud.com` 已备案可直接配置。体验版仍需配置，开发者工具仅本地可勾「不校验合法域名」。
-5. 默认域名有下载频率限制、无加速，个人体验版够用；正式放量建议换标准 COS + 自定义域名/CDN。
+5. 默认域名有下载频率限制、无 CDN 加速，个人体验版够用；正式放量可在标准 COS 上绑自定义域名 + CDN，只改 `COS_CDN_DOMAIN`。
 
 > ✅ **本桶已实测**：通过 S3 兼容接口 `PutObject` 上传成功（`league/flysystem-aws-s3-v3`），此前担心的签名不兼容没有出现。换桶 / 换地域后才报 `403 SignatureDoesNotMatch` / `400 InvalidArgument` / `501 Not Implemented` 时，先试 `COS_USE_PATH_STYLE=true`；仍失败走路径 B，不要反复调密钥。
+
+#### 换桶 / 从轻量存储迁到标准 COS
+
+`AudioStorageService`、Controller、Resource、小程序**全部不用改**，只动配置与对象：
+
+1. **建桶**：标准 COS 控制台新建桶，存储类型选**标准存储**（不要低频/归档，直链播放有取回延迟），公共访问权限改「公有读私有写」。
+2. **搬对象**：旧桶对象**原样复制，object key 保持不变**（`audio/{album_id}/*.mp3`、`cover/{album_id}/*.png`）。`tracks.object_key` 是相对路径，DB 不用动。用 COS 控制台「数据迁移」或 `coscmd` / `rclone` / `aws s3 sync`。
+   > ⚠️ 只改 `.env` 不搬对象，所有历史音频会立刻 404（URL 全被拼到新桶）。若按「先不管迁移」暂时不搬，历史音频/封面不可播是预期行为；key 不变，补搬后自动恢复。
+3. **拉代码并迁移**（新增列 + 回填历史封面）：
+
+   ```bash
+   cd /var/www/listen-book
+   php artisan migrate          # 加 cover_key 并回填历史 cover_url
+   ```
+
+4. **改 `.env` 四项**（必须同地域同桶）：
+
+   ```ini
+   COS_BUCKET=<新桶名>-<AppId>
+   COS_REGION=ap-nanjing
+   COS_ENDPOINT=https://cos.ap-nanjing.myqcloud.com
+   COS_CDN_DOMAIN=https://<新桶名>-<AppId>.cos.ap-nanjing.myqcloud.com
+   ```
+
+5. **清两个缓存**（漏掉 `cache:clear` 会继续吐 1 小时前的旧桶 URL）：
+
+   ```bash
+   php artisan config:clear && php artisan cache:clear && php artisan view:clear
+   ```
+
+6. **mp 后台**：`downloadFile 合法域名` 加新 host（完整 host、不带路径、不支持父域名/泛域名）；`request` 的 `https://api.mixyj.cn` 不变。建议新旧域名并存一段时间再下线旧桶（每类域名有数量上限、每月修改次数有限）。
+7. **验证**：
+
+   ```bash
+   curl -I 'https://<新桶域名>/audio/1/<某条真实 key>.mp3'    # 200
+   curl -s https://api.mixyj.cn/api/v1/albums | head -c 500      # cover_url 已是新域名
+   ```
+
+   后台试传一条音频 + 封面，体验版真机确认能播、封面能显示。
+
+> **封面为什么不用刷库**：`albums.cover_url` / `tracks.cover_url` 历史上存的是完整 URL，换域名后会全挂。本次改造新增 `cover_key` 列存 object key，`cover_url` 由模型 accessor 用 `COS_CDN_DOMAIN` 动态拼；migration 会把历史完整 URL 反推成 key 回填。以后换桶/换域名只改 `.env` 第 4 项即可。`cover_url` 列保留作旧数据兼容（无 key 时回退原值），新数据不再写入。
 
 #### 路径 B（兜底）：一键挂载 + nginx 自有域名
 
@@ -285,6 +330,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | **上传成功，但图片/音频 URL 打开返回 `403 AccessDenied`（XML）** | 桶默认「私有读写」，匿名读必须带签名。换个不存在的 key 会返回 `404 NoSuchKey`，可反证对象确实已写入、只是没读权限 | 控制台 → 存储桶详情 → 基础配置 > 权限设置 → 公共访问权限改「公有读私有写」；改完用下方 `curl -I` 验证 |
 | `403 SignatureDoesNotMatch` / `400 InvalidArgument` / `501 Not Implemented` | 该桶 / 地域不兼容 AWS S3 签名（本桶实测 `PutObject` 已通过，换桶后才可能遇到） | 先试 `COS_USE_PATH_STYLE=true`；仍失败切路径 B（`AUDIO_DRIVER=local`） |
 | `NoSuchBucket` / `NoSuchKey` / 404 | 桶名 / 地域 / key 拼错；`COS_BUCKET`、`COS_REGION`、`COS_ENDPOINT`、`COS_CDN_DOMAIN` 必须同地域同桶 | 核对四项配置；控制台文件列表确认对象路径 |
+| **换桶后封面全部打不开 / 历史音频 404** | 只改了 `.env` 没搬对象（key 不变复制到新桶即可）；或漏了 `php artisan cache:clear`，API 还在吐缓存里 1 小时前的旧桶 URL；封面还需 `php artisan migrate` 完成 `cover_key` 回填 | 按第 2 节「换桶 / 从轻量存储迁到标准 COS」搬对象、跑迁移、清 `config` + `cache` 两个缓存 |
 | `UnableToWriteFile`、上传超时 / `504 Gateway Timeout` | PHP / nginx 上传限制、`fastcgi_read_timeout` 过短或网络不可达 | 见第 2 节「上传大小」，并执行下方自检 |
 
 ### 权限改完的验证
@@ -349,7 +395,8 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 - 单文件 `multipart` 直传，扩展名白名单 `mp3/m4a/aac/wav` + 文件头签名校验 + ≤100MB；object key 由服务端用 ULID 生成，不使用原始文件名。
 - **时长由上传页浏览器**通过 `<audio>` 的 `loadedmetadata` 读取后随表单提交（`duration_sec`），服务端不依赖 ffmpeg / 队列；读不到则存 `null`，小程序显示 `--:--`。
 - 上传失败会清理已写入 COS 的孤儿对象；音频删除为软删，COS 对象保留便于恢复。
-- 列表行内编辑封面时**留空表示不修改**；换新封面只覆盖 `cover_url`，旧的 COS 对象保留（不做自动清理）。编辑表单放在独立的非拖拽行里，避免与拖动排序抢事件。
+- 列表行内编辑封面时**留空表示不修改**；换新封面只覆盖 `cover_key`（对外 `cover_url` 由模型 accessor 动态生成），旧的 COS 对象保留（不做自动清理）。编辑表单放在独立的非拖拽行里，避免与拖动排序抢事件。
+- **封面存 object key，不存完整 URL**：`albums` / `tracks` 的 `cover_key` 由后台上传写入，`cover_url` 由 `App\Support\CoverUrl::resolve()` 在读取时用 `COS_CDN_DOMAIN` 拼出；API、后台 Blade、小程序都读 `cover_url`，契约不变。
 - 所有后台写操作都会 `CatalogService::bump()`，版本号参与缓存键，小程序按版本戳自动拉新数据，无需手动清缓存。
 
 ---

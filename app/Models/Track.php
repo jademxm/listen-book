@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Support\CoverUrl;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,7 +15,7 @@ class Track extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'album_id', 'title', 'cover_url', 'object_key', 'mime',
+        'album_id', 'title', 'cover_url', 'cover_key', 'object_key', 'mime',
         'size_bytes', 'duration_sec', 'sort_order', 'status', 'play_count',
     ];
 
@@ -35,6 +36,11 @@ class Track extends Model
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', 1);
+    }
+
+    public function getCoverUrlAttribute(?string $value): ?string
+    {
+        return CoverUrl::resolve($this->attributes['cover_key'] ?? null, $value);
     }
 
     public function getUrlAttribute(): string
