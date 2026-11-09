@@ -222,7 +222,9 @@ class ListenBookApiTest extends TestCase
             ->assertOk()
             ->assertSee('name="description"', false)
             ->assertSee('name="status"', false)
-            ->assertSee('edit-album-'.$album->id, false);
+            ->assertSee('edit-album-'.$album->id, false)
+            ->assertSee('action="'.route('admin.albums.destroy', $album).'"', false)
+            ->assertSee('其下所有音频及桶内文件会一并删除', false);
 
         $this->withSession(['admin_auth' => true])
             ->get('/admin/tracks')
@@ -364,5 +366,100 @@ class ListenBookApiTest extends TestCase
         } finally {
             @unlink($tmp);
         }
+    }
+
+    public function test_destroy_track_deletes_cos_objects(): void
+    {
+        Storage::fake('cos');
+        config([
+            'filesystems.disks.cos.driver' => 'local',
+            'services.cos.cdn_domain' => 'https://cdn.example.com',
+        ]);
+
+        $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
+        $track = Track::create([
+            'album_id' => $album->id, 'title' => '第一集',
+            'object_key' => 'audio/1/a.mp3', 'cover_key' => 'cover/1/a.png',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+        Storage::disk('cos')->put('audio/1/a.mp3', 'audio');
+        Storage::disk('cos')->put('cover/1/a.png', 'cover');
+
+        $this->withSession(['admin_auth' => true])
+            ->delete('/admin/tracks/'.$track->id)
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        // 软删保留 DB 记录，桶对象同步清掉
+        $this->assertNotNull(Track::withTrashed()->find($track->id)->deleted_at);
+        Storage::disk('cos')->assertMissing('audio/1/a.mp3');
+        Storage::disk('cos')->assertMissing('cover/1/a.png');
+    }
+
+    public function test_destroy_album_cascades_tracks_and_cos_objects(): void
+    {
+        Storage::fake('cos');
+        config([
+            'filesystems.disks.cos.driver' => 'local',
+            'services.cos.cdn_domain' => 'https://cdn.example.com',
+        ]);
+
+        $album = Album::create([
+            'title' => '测试专辑', 'cover_key' => 'cover/9/album.png',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+        $track = Track::create([
+            'album_id' => $album->id, 'title' => '第一集',
+            'object_key' => 'audio/9/1.mp3', 'cover_key' => 'cover/9/1.png',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+        // 历史数据：封面只存完整 URL，删除时要能反推出 key
+        $legacy = Track::create([
+            'album_id' => $album->id, 'title' => '第二集',
+            'object_key' => 'audio/9/2.mp3',
+            'cover_url' => 'https://legacy.example.com/cover/9/2.png',
+            'sort_order' => 2, 'status' => 1,
+        ]);
+        // 之前已软删但桶对象没清的，也要一并清掉
+        $old = Track::create([
+            'album_id' => $album->id, 'title' => '旧集',
+            'object_key' => 'audio/9/old.mp3', 'sort_order' => 3, 'status' => 0,
+        ]);
+        $old->delete();
+
+        foreach (['cover/9/album.png', 'audio/9/1.mp3', 'cover/9/1.png', 'audio/9/2.mp3', 'cover/9/2.png', 'audio/9/old.mp3'] as $key) {
+            Storage::disk('cos')->put($key, 'x');
+        }
+
+        $this->withSession(['admin_auth' => true])
+            ->delete('/admin/albums/'.$album->id)
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $this->assertNotNull(Album::withTrashed()->find($album->id)->deleted_at);
+        foreach ([$track, $legacy, $old] as $item) {
+            $this->assertNotNull(Track::withTrashed()->find($item->id)->deleted_at);
+        }
+        foreach (['cover/9/album.png', 'audio/9/1.mp3', 'cover/9/1.png', 'audio/9/2.mp3', 'cover/9/2.png', 'audio/9/old.mp3'] as $key) {
+            Storage::disk('cos')->assertMissing($key);
+        }
+        $this->getJson('/api/v1/albums')->assertOk()->assertJsonCount(0, 'data.list');
+    }
+
+    public function test_delete_many_normalizes_keys_and_skips_failures(): void
+    {
+        Storage::fake('cos');
+        Storage::disk('cos')->put('audio/1/a.mp3', 'x');
+
+        $deleted = app(AudioStorageService::class)->deleteMany([
+            'https://legacy.example.com/audio/1/a.mp3', // 完整 URL → 相对 key
+            'audio/1/a.mp3',                            // 同一个 key，去重
+            null,
+            '',
+            'https://example.com',                      // 无 path，忽略
+        ]);
+
+        $this->assertSame(1, $deleted);
+        Storage::disk('cos')->assertMissing('audio/1/a.mp3');
     }
 }

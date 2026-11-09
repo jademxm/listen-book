@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\CoverUrl;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -99,6 +100,37 @@ class AudioStorageService
         } catch (\Throwable $e) {
             // 清理失败留待人工处理，主错误信息优先返回给后台
         }
+    }
+
+    /**
+     * 批量删除桶对象：兼容相对 key 与历史完整 cover_url，去重后逐个删。
+     * 单个失败（对象已不存在 / 权限不足）不影响其余，也不抛异常打断后台请求。
+     *
+     * @param  array<int, string|null>  $values
+     * @return int 实际删除成功的对象数
+     */
+    public function deleteMany(array $values): int
+    {
+        $keys = [];
+        foreach ($values as $value) {
+            $key = CoverUrl::keyFrom($value);
+            if ($key !== null) {
+                $keys[$key] = $key;
+            }
+        }
+
+        $deleted = 0;
+        foreach ($keys as $key) {
+            try {
+                if (Storage::disk('cos')->delete($key)) {
+                    $deleted++;
+                }
+            } catch (\Throwable $e) {
+                // 对象可能已被手工删除；残留可在控制台核对，不掩盖主流程
+            }
+        }
+
+        return $deleted;
     }
 
     /** 发网络请求前拦截配置缺失，避免 AWS SDK 抛出难懂的底层凭证异常。 */

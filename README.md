@@ -413,10 +413,11 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 | POST | `/admin/logout` | 退出 |
 | GET/POST | `/admin/albums` | 专辑列表 / 新建；列表行内「编辑」可改名称、简介、封面、上下架 |
 | PATCH | `/admin/albums/{id}` | `{title, description, cover?, status}`，封面留空不修改 |
+| DELETE | `/admin/albums/{id}` | 级联移除专辑 + 其下全部音频 + 对应桶对象（不可恢复） |
 | POST | `/admin/albums/reorder` | `{album_id, target_id}` |
 | GET/POST | `/admin/tracks` | 音频列表（搜索/试听）/ 上传；列表行内「编辑」可改标题、封面 |
 | PATCH | `/admin/tracks/{id}` | 标题、封面、上下架 |
-| DELETE | `/admin/tracks/{id}` | 软删 |
+| DELETE | `/admin/tracks/{id}` | 软删音频 + 同步删桶内音频与封面对象 |
 | POST | `/admin/tracks/reorder` | `{album_id, track_id, target_id}`，插到 target 之前，target 为空则移到末尾 |
 
 `target_id` 语义：**移动到该项之前**；为空或 0 → 移到末尾。
@@ -427,7 +428,9 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 
 - 单文件 `multipart` 直传，扩展名白名单 `mp3/m4a/aac/wav` + 文件头签名校验 + ≤100MB；object key 由服务端用 ULID 生成，不使用原始文件名。
 - **时长由上传页浏览器**通过 `<audio>` 的 `loadedmetadata` 读取后随表单提交（`duration_sec`），服务端不依赖 ffmpeg / 队列；读不到则存 `null`，小程序显示 `--:--`。
-- 上传失败会清理已写入 COS 的孤儿对象；音频删除为软删，COS 对象保留便于恢复。
+- 上传失败会清理已写入 COS 的孤儿对象；上传走底层 SDK 不发 ACL 头，对象继承桶的「公有读私有写」。
+- **删除会同步清理桶对象**：移除音频时删 `object_key` + 封面 key；移除专辑时在 DB 事务里软删专辑及其全部音频（含此前已软删记录）后，批量删除专辑封面、所有音频与封面的桶对象。DB 仍是软删（避免播放历史出现孤儿引用），但**桶文件已删除、不可恢复**，后台提示会显示实际清理的对象数，若少于预期请到控制台核对残留。
+- `AudioStorageService::deleteMany()` 用 `CoverUrl::keyFrom()` 把相对 key 与历史完整 `cover_url` 统一归一化并去重；单个对象删除失败（已不存在 / 权限不足）不影响其余，也不阻断后台请求。S3 与 `local` 两种驱动都走 `Storage::disk('cos')->delete()`。
 - 列表行内编辑封面时**留空表示不修改**；换新封面只覆盖 `cover_key`（对外 `cover_url` 由模型 accessor 动态生成），旧的 COS 对象保留（不做自动清理）。编辑表单放在独立的非拖拽行里，避免与拖动排序抢事件。
 - **封面存 object key，不存完整 URL**：`albums` / `tracks` 的 `cover_key` 由后台上传写入，`cover_url` 由 `App\Support\CoverUrl::resolve()` 在读取时用 `COS_CDN_DOMAIN` 拼出；API、后台 Blade、小程序都读 `cover_url`，契约不变。
 - 所有后台写操作都会 `CatalogService::bump()`，版本号参与缓存键，小程序按版本戳自动拉新数据，无需手动清缓存。

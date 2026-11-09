@@ -100,11 +100,19 @@ class TrackController extends Controller
         return back()->with('status', '已保存');
     }
 
-    public function destroy(Track $track): RedirectResponse
+    public function destroy(Track $track, AudioStorageService $storage): RedirectResponse
     {
-        $track->delete(); // 软删；COS 对象保留，便于误删恢复
+        $keys = [
+            $track->object_key,
+            $track->cover_key,
+            $track->getRawOriginal('cover_url'),
+        ];
+
+        // 软删：保留 DB 记录，播放历史不会变成孤儿引用；桶对象同步清理，不可恢复
+        $track->delete();
+        $deleted = $storage->deleteMany($keys);
         CatalogService::bump();
 
-        return back()->with('status', '已下架并移除（软删除）');
+        return back()->with('status', '音频已移除，同步清理桶对象 '.$deleted.' 个');
     }
 }

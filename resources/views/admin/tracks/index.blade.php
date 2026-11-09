@@ -72,7 +72,7 @@
                 <input type="hidden" name="status" value="{{ $track->status ? 0 : 1 }}">
                 <button class="ghost">{{ $track->status ? '下架' : '上架' }}</button>
               </form>
-              <form method="POST" action="{{ route('admin.tracks.destroy', $track) }}" class="inline" onsubmit="return confirm('确认移除该音频？')">@csrf @method('DELETE')
+              <form method="POST" action="{{ route('admin.tracks.destroy', $track) }}" class="inline" onsubmit="return confirm('确认移除该音频？桶内音频与封面会一并删除，不可恢复。')">@csrf @method('DELETE')
                 <button class="danger">移除</button>
               </form>
               <button type="button" class="ghost" onclick="toggleEdit('edit-track-{{ $track->id }}')">编辑</button>

@@ -21,7 +21,7 @@
 <div class="card">
   <h2>专辑列表（拖动行调整顺序，插到目标行之前）</h2>
   <table>
-    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">音频数</th><th style="width:170px">操作</th></tr></thead>
+    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">音频数</th><th style="width:220px">操作</th></tr></thead>
     <tbody>
       @forelse($albums as $album)
         <tr draggable="true" data-id="{{ $album->id }}">
@@ -32,6 +32,9 @@
           <td>
             <a class="btn ghost" href="{{ route('admin.tracks.index', ['album_id' => $album->id]) }}">查看音频</a>
             <button type="button" class="ghost" onclick="toggleEdit('edit-album-{{ $album->id }}')">编辑</button>
+            <form method="POST" action="{{ route('admin.albums.destroy', $album) }}" class="inline" onsubmit="return confirm('确认移除该专辑？其下所有音频及桶内文件会一并删除，不可恢复。')">@csrf @method('DELETE')
+              <button class="danger">移除</button>
+            </form>
             <div class="muted" style="font-size:12px">{{ $album->status ? '已上架' : '已下架' }}</div>
           </td>
         </tr>
