@@ -403,7 +403,9 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 | GET | `/api/v1/me/histories` | Bearer | 播放历史 |
 | POST | `/api/v1/me/histories` | Bearer | `{track_id, progress_sec, duration_sec}` upsert |
 | DELETE | `/api/v1/me/histories/{trackId}` | Bearer | 删单条 |
-| DELETE | `/api/v1/me/histories` | Bearer | 清空 |
+| DELETE | `/api/v1/me/histories` | Bearer | 清空（v0.12 起连带清空 `play_events`，统计/徽章同步重置） |
+| GET | `/api/v1/me/stats` | Bearer | v0.12 聚合统计：成绩单、累计收听、连续天数、84 天热力数据、专辑完成度、最近续播 |
+| POST | `/api/v1/me/play-events` | Bearer | v0.12 批量收听事件（≤50 条/次），`client_event_id` 幂等；返回 `accepted/duplicated/rejected` |
 
 后台（session + CSRF）：
 
@@ -471,6 +473,17 @@ curl -s -X POST https://api.mixyj.cn/api/v1/auth/login \
 
 端到端：后台上传一条音频 → 体验版列表可见 → 播放并产生历史 → 后台下架 → 体验版刷新后不可见 → 历史里该条自动隐藏。
 
+**v0.12「我的」模块升级（必须执行一次迁移）**：
+
+```bash
+php artisan migrate          # 只新增 play_events 表，不改既有表；可 migrate:rollback 回滚
+php artisan optimize:clear   # 清路由/配置缓存，确保 /me/stats、/me/play-events 生效
+php artisan route:list --path=me   # 验收：应看到 6 条 /me 路由
+php artisan test             # 28 passed / 144 assertions（含事件幂等、补记截断、跨日拆分、清空联动）
+```
+
+事件口径：`start` 只建基准、进度跳变与暂停不计入、`catchup` 按 `min(真实经过时间, 曲目剩余时长)` 截断、跨北京自然日拆分归属、用户身份只取 token。上线前的历史收听不回填；详情见 `docs/我的模块/需求规格说明书(SRS)_听书小程序我的模块.md` 与 `docs/ARCHITECTURE.md` ADR-14。
+
 ---
 
 ## 8. 已知限制（务必知悉）
@@ -481,3 +494,4 @@ curl -s -X POST https://api.mixyj.cn/api/v1/auth/login \
 4. `BackgroundAudioManager.setShutdown` 官方文档缺少 `time` 单位与 `autoNext` 语义细项，小程序侧做了能力探测 + JS 兜底，需在真机确认后按实测调整。
 5. 音频 URL 为公有读长期地址（当前用 bucket 默认访问域名；若控制台支持自定义域名则优先换 `cos.mixyj.cn`，体验域名官方限制 10QPS、无加速）；若改短时效签名 URL，后台连续播放超时会断播。公有读有流量盗刷风险，注意套餐流量。
 6. 后台登录为单管理员 + session，无 RBAC / 操作审计；管理接口依赖 HTTPS 保护。
+7. v0.12 的「累计收听 / 连续天数 / 热力格」依赖小程序回到前台时补记：被系统回收后未再打开、或后台跨曲自动连播的中间曲目可能漏记，属已知少量误差；明细 `play_events` 不自动清理，单用户超 50 万条时再评估归档。

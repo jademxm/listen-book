@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\V1\AlbumController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CatalogController;
 use App\Http\Controllers\Api\V1\HistoryController;
+use App\Http\Controllers\Api\V1\PlayEventController;
+use App\Http\Controllers\Api\V1\StatsController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -25,5 +27,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/me/histories', [HistoryController::class, 'store'])->middleware('throttle:120,1');
         Route::delete('/me/histories', [HistoryController::class, 'clear']);
         Route::delete('/me/histories/{trackId}', [HistoryController::class, 'destroy'])->whereNumber('trackId');
+
+        // 「我的」模块 v1.0：真实收听统计与收听事件上报
+        Route::get('/me/stats', [StatsController::class, 'index']);
+        Route::post('/me/play-events', [PlayEventController::class, 'store'])->middleware('throttle:120,1');
     });
 });

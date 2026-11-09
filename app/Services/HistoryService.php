@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\PlayEvent;
 use App\Models\PlayHistory;
 use App\Models\Track;
 use App\Models\WxUser;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\DB;
 
 class HistoryService
 {
@@ -43,6 +45,12 @@ class HistoryService
 
     public function clear(WxUser $user): int
     {
-        return PlayHistory::where('wx_user_id', $user->id)->delete();
+        // 「我的」模块 FR-06：清空历史会同时重置累计收听、连续天数、热力格与徽章。
+        // 返回值保持原语义（被清掉的历史条数），不把事件数混进去。
+        return DB::transaction(function () use ($user) {
+            PlayEvent::where('wx_user_id', $user->id)->delete();
+
+            return PlayHistory::where('wx_user_id', $user->id)->delete();
+        });
     }
 }
