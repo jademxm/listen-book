@@ -8,6 +8,7 @@ use App\Models\Album;
 use App\Models\PlayHistory;
 use App\Models\Track;
 use App\Models\WxUser;
+use App\Services\AudioStorageService;
 use App\Services\CatalogService;
 use App\Services\ReorderService;
 use App\Support\CoverUrl;
@@ -323,5 +324,45 @@ class ListenBookApiTest extends TestCase
         $this->getJson('/api/v1/me/histories')
             ->assertOk()
             ->assertJsonPath('data.list.0.track.cover_url', 'https://new-bucket.example.com/cover/1/h.png');
+    }
+
+    public function test_cos_upload_sends_no_object_acl(): void
+    {
+        config([
+            'filesystems.disks.cos.driver'   => 's3',
+            'filesystems.disks.cos.key'      => 'probe',
+            'filesystems.disks.cos.secret'   => 'probe',
+            'filesystems.disks.cos.bucket'   => 'listen-book-1250000000',
+            'filesystems.disks.cos.endpoint' => 'https://cos.ap-guangzhou.myqcloud.com',
+            'filesystems.disks.cos.url'      => 'https://cdn.example.com',
+        ]);
+
+        $client = \Mockery::mock(\Aws\S3\S3Client::class);
+        $client->shouldReceive('upload')
+            ->once()
+            ->with(
+                'listen-book-1250000000',
+                \Mockery::pattern('#^audio/1/[A-Z0-9]+\.mp3$#'),
+                \Mockery::type('resource'),
+                null, // 不发 x-amz-acl：对象继承桶的公有读，避免被显式 private 覆盖
+                \Mockery::on(fn ($options) => ($options['params']['ContentType'] ?? null) === 'audio/mpeg')
+            )
+            ->andReturn(new \Aws\Result([]));
+
+        $disk = \Mockery::mock(\Illuminate\Filesystem\AwsS3V3Adapter::class);
+        $disk->shouldReceive('getClient')->once()->andReturn($client);
+        Storage::shouldReceive('disk')->with('cos')->andReturn($disk);
+
+        $tmp = tempnam(sys_get_temp_dir(), 'lb_');
+        file_put_contents($tmp, 'ID3'.str_repeat("\0", 64));
+        $file = new \Illuminate\Http\UploadedFile($tmp, 'a.mp3', 'audio/mpeg', null, true);
+
+        try {
+            $result = app(AudioStorageService::class)->storeAudio($file, 1);
+            $this->assertStringStartsWith('audio/1/', $result['object_key']);
+            $this->assertSame('audio/mpeg', $result['mime']);
+        } finally {
+            @unlink($tmp);
+        }
     }
 }

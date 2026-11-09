@@ -150,7 +150,9 @@ class AudioStorageService
         }
 
         try {
-            if (! Storage::disk('cos')->put($key, $stream)) {
+            if (config('filesystems.disks.cos.driver') === 's3') {
+                $this->putToCosWithoutAcl($key, $stream);
+            } elseif (! Storage::disk('cos')->put($key, $stream)) {
                 throw new RuntimeException('对象存储写入失败');
             }
         } finally {
@@ -158,6 +160,45 @@ class AudioStorageService
                 fclose($stream);
             }
         }
+    }
+
+    /**
+     * 标准 COS 的 S3 兼容层会把 x-amz-acl: private 当成对象 ACL 生效，覆盖桶的
+     * 「公有读私有写」，新上传的图片/音频一律 403。Flysystem 的 writeStream()
+     * 无条件携带该头（AwsS3V3Adapter::upload() 默认 determineAcl = private），
+     * 因此 s3 模式改走底层 S3Client：upload() 第 4 参数传 null 时完全不发 ACL 头
+     * （分片上传的 CreateMultipartUpload 同理），对象保持 default 继承桶权限。
+     *
+     * 不用 visibility=public 修：那会变成逐对象 public-read ACL，撞腾讯云
+     * 单账号 1000 条 ACL/Policy 配额，且桶权限此后对这些对象失效。
+     */
+    private function putToCosWithoutAcl(string $key, $stream): void
+    {
+        /** @var \Illuminate\Filesystem\AwsS3V3Adapter $disk */
+        $disk = Storage::disk('cos');
+
+        $disk->getClient()->upload(
+            (string) config('filesystems.disks.cos.bucket'),
+            $key,
+            $stream,
+            null,
+            ['params' => ['ContentType' => $this->mimeType($key)]]
+        );
+    }
+
+    /** 与 Flysystem 之前按扩展名推断 ContentType 的行为保持一致。 */
+    private function mimeType(string $key): string
+    {
+        return match (strtolower(pathinfo($key, PATHINFO_EXTENSION))) {
+            'mp3' => 'audio/mpeg',
+            'm4a' => 'audio/mp4',
+            'aac' => 'audio/aac',
+            'wav' => 'audio/wav',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            default => 'application/octet-stream',
+        };
     }
 
     private function readHead(UploadedFile $file): string

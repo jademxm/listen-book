@@ -104,6 +104,38 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 
 > ✅ **本桶已实测**：通过 S3 兼容接口 `PutObject` 上传成功（`league/flysystem-aws-s3-v3`），此前担心的签名不兼容没有出现。换桶 / 换地域后才报 `403 SignatureDoesNotMatch` / `400 InvalidArgument` / `501 Not Implemented` 时，先试 `COS_USE_PATH_STYLE=true`；仍失败走路径 B，不要反复调密钥。
 
+#### 对象权限：桶级一次配置，不写进代码
+
+桶设成「公有读私有写」后，新上传的 `audio/*`、`cover/*` 应当自动匿名可读。COS 创建对象时默认不建 ACL，权限继承桶；控制台显示「所有用户可读」就是这个结果。
+
+> ⚠️ **2026-11-09 修正**：标准 COS 的 S3 兼容层**会**把 `x-amz-acl: private` 当成对象 ACL 生效。此前这里写「不映射」是错的，实际现象是「后台上传成功，但图片裂开 / 音频 403，必须到控制台逐个改成公有读」。
+>
+> **根因**：`league/flysystem-aws-s3-v3` 的 `AwsS3V3Adapter::upload()`（155/171 行）按 `determineAcl()` 默认 `private` 调用 SDK，AWS SDK `ObjectUploader::promise()` 第 89 行也无条件写 `'ACL' => $this->acl`，于是每次 PutObject 都带 `x-amz-acl: private`，对象被显式设为私有、优先级高于桶权限。
+>
+> **已修**：`AudioStorageService::putToCosWithoutAcl()` 在 `s3` 驱动下改走底层 `S3Client::upload($bucket, $key, $stream, null, ...)`——第 4 参数传 `null` 时**完全不发 ACL 头**（>16MB 分片上传的 `CreateMultipartUpload` 同样不带），对象保持 `default` 继承桶权限。`AUDIO_DRIVER=local` 仍走 Flysystem；`ContentType` 按扩展名显式传入，与原先行为一致。
+>
+> **不要**用 `['visibility' => 'public']` 修：那会变成逐对象 `public-read` ACL，撞单账号 **1000 条** ACL/Policy 配额（`PolicyFull`），且桶权限此后对这些对象失效。官方口径是「若不需要对文件进行特别的 ACL 控制，请把 `x-cos-acl`、`ACL` 等参数置空，保持继承存储桶权限」。
+
+**新上传**部署该改动后立即正常。**历史对象**仍是显式私有，需清一次：
+
+1. **控制台（最快）**：存储桶 → 文件列表 → 勾选多个对象 → **更多操作 > 修改访问权限** → 选「**继承权限**」。官方明确支持多选批量改。
+2. **脚本（可重复、覆盖全部页）**：
+
+   ```bash
+   cd /var/www/listen-book
+   php scripts/fix-cos-object-acl.php            # dry-run，列出待处理对象
+   php scripts/fix-cos-object-acl.php --apply    # 逐个把对象 ACL 置为 default
+   ```
+
+   脚本复用 `.env` 的 `COS_*` 配置，遍历 `audio/`、`cover/` 调 `putObjectAcl(['ACL' => 'default'])`。`default` = 继承桶权限、不创建对象级 ACL，不消耗配额。若 COS 的 S3 兼容层对该值返回 `InvalidArgument`，改用上面的控制台批量方式。
+3. 验证：`curl -I 'https://<bucket>.cos.<region>.myqcloud.com/audio/1/xxx.mp3'` 期望 `200`。
+
+若以后不想依赖「公有读」这条桶 ACL，可改用**桶策略**（控制台 → 权限管理 → Policy 权限设置）：一条规则允许匿名用户对该桶 `/*` 执行 `cos:GetObject`，不随对象数量增长、不占对象级 ACL 配额。**对象级 ACL 优先级高于桶策略**，必须先按上面把旧对象清成「继承」。
+
+> 安全提示：匿名可读意味着拿到直链就能下载，这是小程序 `BGM.src` 直链播放的必要条件。要收敛可在控制台配「防盗链」白名单并**允许空 Referer**（播放器请求常不带 Referer）；改成私有读 + 预签名 URL 则需改 URL 生成与 catalog 缓存策略（签名会被 1 小时缓存固化后过期），不是改个配置项就行。
+>
+> 另注：官方说明「对象的访问权限只在通过**默认域名**访问时有效，通过自定义域名访问时以存储桶权限为准」——本工程用 bucket 默认域名，所以对象 ACL 会生效。
+
 #### 换桶 / 从轻量存储迁到标准 COS
 
 `AudioStorageService`、Controller、Resource、小程序**全部不用改**，只动配置与对象：
@@ -327,7 +359,8 @@ sudo nginx -t && sudo systemctl reload nginx
 | `Error retrieving credentials from the instance profile metadata service`、`169.254.169.254`、`cURL error 28` | `.env` 里 `COS_SECRET_ID` / `COS_SECRET_KEY` 为空。Laravel 只在两者都非空时才把 `credentials` 传给 AWS SDK；缺了 SDK 就走默认凭证链去找 EC2 实例元数据，本地与轻量服务器没这个服务 → 1 秒超时 | 填真实密钥后 `php artisan config:clear`；或改 `AUDIO_DRIVER=local` 走挂载目录 |
 | `对象存储未配置：.env 里的 COS_XXX 为空` | 本工程的前置校验提前拦下（不会再等 IMDS 超时） | 同上 |
 | `COS_BUCKET 仍是 .env.example 的模板占位值` | 直接复制模板，没改桶名 | 把 `your-bucket-1250000000` 换成控制台真实桶名，`COS_CDN_DOMAIN` 同步换 |
-| **上传成功，但图片/音频 URL 打开返回 `403 AccessDenied`（XML）** | 桶默认「私有读写」，匿名读必须带签名。换个不存在的 key 会返回 `404 NoSuchKey`，可反证对象确实已写入、只是没读权限 | 控制台 → 存储桶详情 → 基础配置 > 权限设置 → 公共访问权限改「公有读私有写」；改完用下方 `curl -I` 验证 |
+| **上传成功，但图片裂开 / 音频 403 `AccessDenied`（XML）** | ① 桶默认「私有读写」；② **桶已公有读、但每个新对象仍 403** → 旧代码经 Flysystem 带了 `x-amz-acl: private`，对象级 ACL 覆盖桶权限。换个不存在的 key 返回 `404 NoSuchKey` 可反证对象已写入 | ① 控制台把桶改「公有读私有写」；② 部署 `AudioStorageService` 新代码（上传不再发 ACL 头），并对**历史对象**跑 `php scripts/fix-cos-object-acl.php --apply` 或控制台批量改「继承权限」，详见第 2 节「对象权限」 |
+| `PolicyFull` / `your policy or acl has reached the limit` | 给每个对象写了文件级 ACL / Policy，单主账号规则总数超过 1000 条 | 删掉多余对象 ACL（或把对象 ACL 置回 `default` 继承）；代码里**不要**传 `visibility` / `ACL`，权限统一由桶级「公有读私有写」或一条桶策略控制，见第 2 节「对象权限」 |
 | `403 SignatureDoesNotMatch` / `400 InvalidArgument` / `501 Not Implemented` | 该桶 / 地域不兼容 AWS S3 签名（本桶实测 `PutObject` 已通过，换桶后才可能遇到） | 先试 `COS_USE_PATH_STYLE=true`；仍失败切路径 B（`AUDIO_DRIVER=local`） |
 | `NoSuchBucket` / `NoSuchKey` / 404 | 桶名 / 地域 / key 拼错；`COS_BUCKET`、`COS_REGION`、`COS_ENDPOINT`、`COS_CDN_DOMAIN` 必须同地域同桶 | 核对四项配置；控制台文件列表确认对象路径 |
 | **换桶后封面全部打不开 / 历史音频 404** | 只改了 `.env` 没搬对象（key 不变复制到新桶即可）；或漏了 `php artisan cache:clear`，API 还在吐缓存里 1 小时前的旧桶 URL；封面还需 `php artisan migrate` 完成 `cover_key` 回填 | 按第 2 节「换桶 / 从轻量存储迁到标准 COS」搬对象、跑迁移、清 `config` + `cache` 两个缓存 |
