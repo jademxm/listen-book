@@ -19,9 +19,9 @@
 </div>
 
 <div class="card">
-  <h2>专辑列表（拖动行调整顺序，插到目标行之前）</h2>
+  <h2>专辑列表（拖动行调整顺序：落在行的上半部分插到其之前，下半部分插到其之后）</h2>
   <table>
-    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">音频数</th><th style="width:220px">操作</th></tr></thead>
+    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">上架音频</th><th style="width:220px">操作</th></tr></thead>
     <tbody>
       @forelse($albums as $album)
         <tr draggable="true" data-id="{{ $album->id }}">
@@ -72,15 +72,15 @@
       @endforelse
     </tbody>
   </table>
-  <p class="muted" style="font-size:12px">拖到最后一行之后时，本实现仍按「插到目标之前」处理；如需移到末尾，请拖到目标行的上一行并刷新确认顺序。</p>
+  <p class="muted" style="font-size:12px">拖动后按落点插入：落在行的下半部分即插到该行之后，落在最后一行下半部分即移到末尾。音频数为「已上架」数量，与小程序端显示一致。</p>
 </div>
 @endsection
 
 @section('scripts')
 <script>
-window.bindReorder('tbody tr[draggable]', '{{ route('admin.albums.reorder') }}', (movingId, row) => ({
+window.bindReorder('tbody tr[draggable]', '{{ route('admin.albums.reorder') }}', (movingId, targetRow) => ({
   album_id: movingId,
-  target_id: Number(row.dataset.id)
+  target_id: targetRow ? Number(targetRow.dataset.id) : null
 }));
 </script>
 @endsection

@@ -54,51 +54,50 @@
 </div>
 
 <div class="card">
-  <h2>音频列表（同一专辑内拖动行排序，插到目标行之前）</h2>
-  @foreach($tracks->getCollection()->groupBy('album_id') as $albumId => $group)
-    <h3 style="font-size:14px;margin:16px 0 8px">{{ optional($group->first()->album)->title ?? ('专辑 '.$albumId) }}</h3>
-    <table>
-      <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>标题</th><th style="width:90px">时长</th><th style="width:240px">试听</th><th style="width:220px">操作</th></tr></thead>
-      <tbody data-album-id="{{ $albumId }}">
-        @foreach($group as $track)
-          <tr draggable="true" data-id="{{ $track->id }}">
-            <td>{{ $track->sort_order }}</td>
-            <td>@if($track->cover_url)<img class="thumb" src="{{ $track->cover_url }}" alt="">@endif</td>
-            <td>{{ $track->title }}<div class="muted" style="font-size:12px">#{{ $track->id }} · {{ $track->status ? '已上架' : '已下架' }}</div></td>
-            <td>{{ $track->duration_sec ? sprintf('%02d:%02d', floor($track->duration_sec / 60), $track->duration_sec % 60) : '--:--' }}</td>
-            <td><audio controls preload="none" src="{{ $track->url }}"></audio></td>
-            <td>
-              <form method="POST" action="{{ route('admin.tracks.update', $track) }}" class="inline">@csrf @method('PATCH')
-                <input type="hidden" name="status" value="{{ $track->status ? 0 : 1 }}">
-                <button class="ghost">{{ $track->status ? '下架' : '上架' }}</button>
-              </form>
-              <form method="POST" action="{{ route('admin.tracks.destroy', $track) }}" class="inline" onsubmit="return confirm('确认移除该音频？桶内音频与封面会一并删除，不可恢复。')">@csrf @method('DELETE')
-                <button class="danger">移除</button>
-              </form>
-              <button type="button" class="ghost" onclick="toggleEdit('edit-track-{{ $track->id }}')">编辑</button>
-            </td>
-          </tr>
-          <tr class="edit-row" id="edit-track-{{ $track->id }}" style="display:none">
-            <td colspan="6">
-              <form method="POST" action="{{ route('admin.tracks.update', $track) }}" enctype="multipart/form-data" class="edit-form">
-                @csrf @method('PATCH')
-                <label>音频标题</label>
-                <input type="text" name="title" maxlength="150" value="{{ $track->title }}" required>
-                <label>封面（留空表示不修改）</label>
-                @if($track->cover_url)<div class="muted" style="font-size:12px;margin-bottom:6px">当前封面：<img class="thumb" src="{{ $track->cover_url }}" alt=""></div>@endif
-                <input type="file" name="cover" accept="image/jpeg,image/png,image/webp">
-                <div style="margin-top:12px">
-                  <button type="submit">保存</button>
-                  <button type="button" class="ghost" onclick="toggleEdit('edit-track-{{ $track->id }}')">取消</button>
-                </div>
-              </form>
-            </td>
-          </tr>
-        @endforeach
-      </tbody>
-    </table>
-  @endforeach
-  @if($tracks->isEmpty())<p class="muted">暂无音频。</p>@endif
+  <h2>音频列表（同一专辑内拖动行排序：落在行的上半部分插到其之前，下半部分插到其之后）</h2>
+  <table>
+    <thead><tr><th style="width:56px">顺序</th><th style="width:140px">专辑</th><th style="width:56px">封面</th><th>标题</th><th style="width:80px">时长</th><th style="width:200px">试听</th><th style="width:220px">操作</th></tr></thead>
+    <tbody>
+      @forelse($tracks as $track)
+        <tr draggable="true" data-id="{{ $track->id }}" data-album-id="{{ $track->album_id }}">
+          <td>{{ $track->sort_order }}</td>
+          <td class="muted">{{ optional($track->album)->title ?? ('专辑 '.$track->album_id) }}</td>
+          <td>@if($track->cover_url)<img class="thumb" src="{{ $track->cover_url }}" alt="">@endif</td>
+          <td>{{ $track->title }}<div class="muted" style="font-size:12px">#{{ $track->id }} · {{ $track->status ? '已上架' : '已下架' }}</div></td>
+          <td>{{ $track->duration_sec ? sprintf('%02d:%02d', floor($track->duration_sec / 60), $track->duration_sec % 60) : '--:--' }}</td>
+          <td><audio controls preload="none" src="{{ $track->url }}"></audio></td>
+          <td>
+            <form method="POST" action="{{ route('admin.tracks.update', $track) }}" class="inline">@csrf @method('PATCH')
+              <input type="hidden" name="status" value="{{ $track->status ? 0 : 1 }}">
+              <button class="ghost">{{ $track->status ? '下架' : '上架' }}</button>
+            </form>
+            <form method="POST" action="{{ route('admin.tracks.destroy', $track) }}" class="inline" onsubmit="return confirm('确认移除该音频？桶内音频与封面会一并删除，不可恢复。')">@csrf @method('DELETE')
+              <button class="danger">移除</button>
+            </form>
+            <button type="button" class="ghost" onclick="toggleEdit('edit-track-{{ $track->id }}')">编辑</button>
+          </td>
+        </tr>
+        <tr class="edit-row" id="edit-track-{{ $track->id }}" style="display:none">
+          <td colspan="7">
+            <form method="POST" action="{{ route('admin.tracks.update', $track) }}" enctype="multipart/form-data" class="edit-form">
+              @csrf @method('PATCH')
+              <label>音频标题</label>
+              <input type="text" name="title" maxlength="150" value="{{ $track->title }}" required>
+              <label>封面（留空表示不修改）</label>
+              @if($track->cover_url)<div class="muted" style="font-size:12px;margin-bottom:6px">当前封面：<img class="thumb" src="{{ $track->cover_url }}" alt=""></div>@endif
+              <input type="file" name="cover" accept="image/jpeg,image/png,image/webp">
+              <div style="margin-top:12px">
+                <button type="submit">保存</button>
+                <button type="button" class="ghost" onclick="toggleEdit('edit-track-{{ $track->id }}')">取消</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      @empty
+        <tr><td colspan="7" class="muted">暂无音频。</td></tr>
+      @endforelse
+    </tbody>
+  </table>
   <div style="margin-top:16px">{{ $tracks->links() }}</div>
 </div>
 @endsection
@@ -150,10 +149,13 @@
   });
 })();
 
-window.bindReorder('tbody[data-album-id] tr[draggable]', '{{ route('admin.tracks.reorder') }}', (movingId, row) => ({
-  album_id: Number(row.closest('tbody').dataset.albumId),
+window.bindReorder('tbody tr[draggable]', '{{ route('admin.tracks.reorder') }}', (movingId, targetRow, movingRow) => ({
+  album_id: Number(movingRow.dataset.albumId),
   track_id: movingId,
-  target_id: Number(row.dataset.id)
-}));
+  target_id: targetRow ? Number(targetRow.dataset.id) : null
+}), {
+  sameGroup: (a, b) => a.dataset.albumId === b.dataset.albumId,
+  groupHint: '音频只能在同一个专辑内排序。'
+});
 </script>
 @endsection

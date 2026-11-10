@@ -74,8 +74,18 @@ window.postJson = async function (url, body) {
   if (!res.ok || !data.ok) { alert('操作失败：' + (data.message || res.status)); return false; }
   return true;
 };
-window.bindReorder = function (selector, url, buildPayload) {
-  document.querySelectorAll(selector).forEach(row => {
+/**
+ * 行拖拽排序。
+ * 落点在行的上半部分 → 插到该行之前；下半部分 → 插到该行之后（末行下半部分即移到末尾，target_id 传 null）。
+ * options.sameGroup(movingRow, targetRow) 用于限制跨分组拖拽；options.groupHint 是拒绝时的提示语。
+ */
+window.bindReorder = function (selector, url, buildPayload, options) {
+  const opts = options || {};
+  const sameGroup = opts.sameGroup || null;
+  const groupHint = opts.groupHint || '只能在同一分组内排序';
+  const allRows = () => Array.from(document.querySelectorAll(selector));
+
+  allRows().forEach(row => {
     row.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', row.dataset.id));
     row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('drag-over'); });
     row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
@@ -84,7 +94,22 @@ window.bindReorder = function (selector, url, buildPayload) {
       row.classList.remove('drag-over');
       const movingId = e.dataTransfer.getData('text/plain');
       if (!movingId || movingId === row.dataset.id) return;
-      if (await window.postJson(url, buildPayload(Number(movingId), row))) location.reload();
+
+      const movingRow = allRows().find(r => r.dataset.id === movingId);
+      if (!movingRow) return;
+      if (sameGroup && !sameGroup(movingRow, row)) { alert(groupHint); return; }
+
+      const rect = row.getBoundingClientRect();
+      const insertAfter = e.clientY - rect.top > rect.height / 2;
+      let targetRow = row;
+      if (insertAfter) {
+        // 跳过非拖拽行（如行内编辑行），找下一个同组目标；同组没有下一行则落到末尾
+        let next = row.nextElementSibling;
+        while (next && !next.matches(selector)) next = next.nextElementSibling;
+        targetRow = (next && (!sameGroup || sameGroup(movingRow, next))) ? next : null;
+      }
+
+      if (await window.postJson(url, buildPayload(Number(movingId), targetRow, movingRow))) location.reload();
     });
   });
 };

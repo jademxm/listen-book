@@ -65,6 +65,28 @@ class ListenBookApiTest extends TestCase
         );
     }
 
+    public function test_reorder_moves_track_to_end_when_target_is_null(): void
+    {
+        $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
+        foreach (['A', 'B', 'C'] as $i => $title) {
+            Track::create([
+                'album_id' => $album->id,
+                'title' => $title,
+                'object_key' => 'audio/'.$title.'.mp3',
+                'sort_order' => $i + 1,
+                'status' => 1,
+            ]);
+        }
+
+        // 后台拖到末行下半部分时 target_id 传 null，语义为「移到末尾」
+        app(ReorderService::class)->tracks($album->id, Track::where('title', 'A')->firstOrFail()->id, null);
+
+        $this->assertSame(
+            ['B', 'C', 'A'],
+            Track::where('album_id', $album->id)->orderBy('sort_order')->pluck('title')->all()
+        );
+    }
+
     public function test_history_report_upserts_and_bumps_version(): void
     {
         $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
@@ -231,6 +253,29 @@ class ListenBookApiTest extends TestCase
             ->assertOk()
             ->assertSee('封面（留空表示不修改）')
             ->assertSee('edit-track-', false);
+    }
+
+    public function test_admin_album_list_counts_only_published_tracks(): void
+    {
+        $album = Album::create(['title' => '口径测试', 'sort_order' => 1, 'status' => 1]);
+        Track::create([
+            'album_id' => $album->id, 'title' => '已上架', 'object_key' => 'audio/a.mp3',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+        Track::create([
+            'album_id' => $album->id, 'title' => '草稿', 'object_key' => 'audio/b.mp3',
+            'sort_order' => 2, 'status' => 0,
+        ]);
+
+        $html = $this->withSession(['admin_auth' => true])->get('/admin/albums')->assertOk()->getContent();
+
+        $matched = preg_match('/<tr draggable="true" data-id="'.$album->id.'">(.*?)<\/tr>/s', $html, $row);
+        $this->assertSame(1, $matched, '未找到专辑行');
+
+        preg_match_all('/<td[^>]*>(.*?)<\/td>/s', $row[1], $cells);
+        // 列序：顺序 / 封面 / 名称 / 上架音频 / 操作
+        $this->assertCount(5, $cells[1]);
+        $this->assertSame('1', trim(strip_tags($cells[1][3])), '音频数应只统计已上架，与接口 track_count 同口径');
     }
 
     public function test_cover_url_follows_cdn_domain_without_db_changes(): void

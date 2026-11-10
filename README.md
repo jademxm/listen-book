@@ -415,7 +415,7 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 | --- | --- | --- |
 | GET/POST | `/admin/login` | 登录 |
 | POST | `/admin/logout` | 退出 |
-| GET/POST | `/admin/albums` | 专辑列表 / 新建；列表行内「编辑」可改名称、简介、封面、上下架 |
+| GET/POST | `/admin/albums` | 专辑列表 / 新建；列表行内「编辑」可改名称、简介、封面、上下架；「上架音频」列只统计 `status=1`，与 `/api/v1/albums` 的 `track_count` 同口径 |
 | PATCH | `/admin/albums/{id}` | `{title, description, cover?, status}`，封面留空不修改 |
 | DELETE | `/admin/albums/{id}` | 级联移除专辑 + 其下全部音频 + 对应桶对象（不可恢复） |
 | POST | `/admin/albums/reorder` | `{album_id, target_id}` |
@@ -425,6 +425,8 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 | POST | `/admin/tracks/reorder` | `{album_id, track_id, target_id}`，插到 target 之前，target 为空则移到末尾 |
 
 `target_id` 语义：**移动到该项之前**；为空或 0 → 移到末尾。
+
+后台拖拽的落点决定方向：落在目标行的**上半部分**＝插到该行之前，**下半部分**＝插到该行之后；落在最后一行下半部分即移到末尾（前端传 `target_id: null`）。音频列表按 `album_id` + `sort_order` 排序后**单表分页**（每页 30 条），不再按专辑分组渲染——分组原先做在分页之后，同一专辑跨页会出现两个同名表头。跨专辑拖拽会在前端被拦截（后端 `ReorderService` 同样拒绝「音频不属于该专辑」），避免误把音频拖到别的专辑里。
 
 ---
 

@@ -21,7 +21,12 @@ class AlbumController extends Controller
 {
     public function index(): View
     {
-        $albums = Album::query()->withCount('tracks')->orderBy('sort_order')->orderBy('id')->get();
+        // 只数已上架音频，与 GET /api/v1/albums 的 track_count 同口径；只取列表需要的列
+        $albums = Album::query()
+            ->withCount(['tracks' => fn ($query) => $query->where('status', 1)])
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get(['id', 'title', 'description', 'cover_key', 'cover_url', 'sort_order', 'status']);
 
         return view('admin.albums.index', compact('albums'));
     }
