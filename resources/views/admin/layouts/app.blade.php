@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="csrf-token" content="{{ csrf_token() }}">
-<title>@yield('title', '听书后台')</title>
+<title>@yield('title', $brand['name'])</title>
 <style>
-:root { --line:#e3e6ea; --muted:#6b7280; --accent:#185fa5; --danger:#a32d2d; --ok:#0f6e56; }
+:root { --line:#e3e6ea; --muted:#6b7280; --accent:{{ $brand['color'] }}; --danger:#a32d2d; --ok:#0f6e56; }
 * { box-sizing:border-box; }
 body { margin:0; font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; color:#1f2937; background:#f7f8fa; }
 header { display:flex; align-items:center; gap:20px; padding:12px 24px; background:#fff; border-bottom:1px solid var(--line); }
 header a { color:var(--accent); text-decoration:none; }
-header .brand { font-weight:600; margin-right:auto; }
+header .brand { font-weight:600; margin-right:auto; display:flex; align-items:center; gap:8px; }
+header .brand-logo { height:22px; width:auto; max-width:120px; object-fit:contain; border-radius:4px; }
 main { max-width:1080px; margin:24px auto; padding:0 20px; }
 .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:20px; }
 h1 { font-size:20px; margin:0 0 16px; }
@@ -43,7 +44,11 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
 </head>
 <body>
 <header>
-  <span class="brand">听书后台</span>
+  {{-- 站名与 Logo 来自 $brand（config/brand.php ← .env 的 BRAND_*） --}}
+  <span class="brand">
+    @if(!empty($brand['logo']))<img class="brand-logo" src="{{ $brand['logo'] }}" alt="{{ $brand['name'] }}">@endif
+    <span>{{ $brand['name'] }}</span>
+  </span>
   <a href="{{ route('admin.tracks.index') }}">音频</a>
   <a href="{{ route('admin.albums.index') }}">专辑</a>
   <form method="POST" action="{{ route('admin.logout') }}" class="inline">@csrf<button class="ghost">退出</button></form>

@@ -144,7 +144,7 @@ class ListenBookApiTest extends TestCase
             'status' => 0,
         ]);
 
-        // 下架后小程序书库立即不可见（catalog 版本号已 bump）
+        // 下架后小程序「枕书」立即不可见（catalog 版本号已 bump）
         $this->getJson('/api/v1/albums')
             ->assertOk()
             ->assertJsonCount(0, 'data.list');
