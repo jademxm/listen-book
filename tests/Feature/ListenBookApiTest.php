@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Admin;
 use App\Models\Album;
 use App\Models\PlayHistory;
 use App\Models\Track;
@@ -18,6 +19,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 class ListenBookApiTest extends TestCase
 {
@@ -27,6 +29,26 @@ class ListenBookApiTest extends TestCase
     {
         parent::setUp();
         Cache::flush();
+    }
+
+    /** 签发一个超级管理员的 access token，后续请求带 Authorization: Bearer */
+    private function asAdmin(): static
+    {
+        $admin = Admin::create([
+            'username' => 'tester',
+            'phone' => '13800000000',
+            'password' => 'test1234',
+            'role' => Admin::ROLE_SUPER,
+            'status' => 1,
+        ]);
+
+        $token = (string) JWTAuth::fromUser($admin);
+
+        // 清掉签发时缓存在单例上的 token，强制中间件从请求头重新解析
+        $this->app['auth']->forgetGuards();
+        $this->app['tymon.jwt']->unsetToken();
+
+        return $this->withHeader('Authorization', 'Bearer '.$token);
     }
 
     public function test_catalog_version_survives_cache_clear_and_keeps_increasing(): void
@@ -154,15 +176,15 @@ class ListenBookApiTest extends TestCase
         $staleTarget = Track::where('album_id', $other->id)->firstOrFail();
         $a = Track::where('album_id', $album->id)->where('title', 'A')->firstOrFail();
 
-        $this->withSession(['admin_auth' => true])
-            ->postJson('/admin/tracks/reorder', [
+        $this->asAdmin()
+            ->postJson('/api/admin/tracks/reorder', [
                 'album_id' => $album->id,
                 'track_id' => $a->id,
                 'target_id' => $staleTarget->id,
             ])
             ->assertOk()
-            ->assertJsonPath('ok', true)
-            ->assertJsonPath('degraded', true);
+            ->assertJsonPath('code', 0)
+            ->assertJsonPath('data.degraded', true);
 
         $this->assertSame(
             ['B', 'C', 'A'],
@@ -178,15 +200,15 @@ class ListenBookApiTest extends TestCase
         $c = Track::where('album_id', $album->id)->where('title', 'C')->firstOrFail();
         $b = Track::where('album_id', $album->id)->where('title', 'B')->firstOrFail();
 
-        $this->withSession(['admin_auth' => true])
-            ->postJson('/admin/tracks/reorder', [
+        $this->asAdmin()
+            ->postJson('/api/admin/tracks/reorder', [
                 'album_id' => $other->id,
                 'track_id' => $c->id,
                 'target_id' => $b->id,
             ])
             ->assertOk()
-            ->assertJsonPath('ok', true)
-            ->assertJsonMissingPath('degraded');
+            ->assertJsonPath('code', 0)
+            ->assertJsonMissingPath('data.degraded');
 
         $this->assertSame(
             ['A', 'C', 'B'],
@@ -267,8 +289,7 @@ class ListenBookApiTest extends TestCase
 
     public function test_upload_page_has_no_runtime_diagnostics(): void
     {
-        $this->withSession(['admin_auth' => true])
-            ->get('/admin/tracks')
+        $this->get('/admin/tracks')
             ->assertOk()
             ->assertSee('上传并上架')
             ->assertDontSee('本次 Web 请求实测')
@@ -300,15 +321,13 @@ class ListenBookApiTest extends TestCase
             ->assertJsonPath('data.content.level_names.item', '章节')
             ->assertJsonPath('data.content.max_depth', 3);
 
-        $this->withSession(['admin_auth' => true])
-            ->get('/admin/albums')
+        $this->get('/admin/albums')
             ->assertOk()
             ->assertSee('课程管理')
             ->assertSee('上架章节')
             ->assertDontSee('专辑管理');
 
-        $this->withSession(['admin_auth' => true])
-            ->get('/admin/tracks')
+        $this->get('/admin/tracks')
             ->assertOk()
             ->assertSee('章节管理')
             ->assertSee('所属课程')
@@ -322,14 +341,14 @@ class ListenBookApiTest extends TestCase
     {
         $album = Album::create(['title' => '旧名称', 'description' => '旧简介', 'sort_order' => 1, 'status' => 1]);
 
-        $this->withSession(['admin_auth' => true])
-            ->patch('/admin/albums/'.$album->id, [
+        $this->asAdmin()
+            ->patchJson('/api/admin/albums/'.$album->id, [
                 'title' => '新名称',
                 'description' => '新简介',
-                'status' => '0',
+                'status' => 0,
             ])
-            ->assertSessionHasNoErrors()
-            ->assertRedirect();
+            ->assertOk()
+            ->assertJsonPath('code', 0);
 
         $this->assertDatabaseHas('albums', [
             'id' => $album->id,
@@ -358,10 +377,11 @@ class ListenBookApiTest extends TestCase
         file_put_contents($tmp, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
         $cover = new \Illuminate\Http\UploadedFile($tmp, 'cover.png', 'image/png', null, true);
 
-        $this->withSession(['admin_auth' => true])
-            ->patch('/admin/albums/'.$album->id, ['cover' => $cover])
-            ->assertSessionHasNoErrors()
-            ->assertRedirect();
+        // 带文件的更新走 POST + _method=PATCH（PHP 不解析 PATCH 的 multipart body）
+        $this->asAdmin()
+            ->post('/api/admin/albums/'.$album->id, ['_method' => 'PATCH', 'cover' => $cover])
+            ->assertOk()
+            ->assertJsonPath('code', 0);
 
         $url = (string) $album->fresh()->cover_url;
         $this->assertStringStartsWith('https://cdn.example.com/cover/'.$album->id.'/', $url);
@@ -389,10 +409,10 @@ class ListenBookApiTest extends TestCase
         file_put_contents($tmp, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
         $cover = new \Illuminate\Http\UploadedFile($tmp, 'cover.png', 'image/png', null, true);
 
-        $this->withSession(['admin_auth' => true])
-            ->patch('/admin/tracks/'.$track->id, ['title' => '新标题', 'cover' => $cover])
-            ->assertSessionHasNoErrors()
-            ->assertRedirect();
+        $this->asAdmin()
+            ->post('/api/admin/tracks/'.$track->id, ['_method' => 'PATCH', 'title' => '新标题', 'cover' => $cover])
+            ->assertOk()
+            ->assertJsonPath('code', 0);
 
         $track->refresh();
         $this->assertSame('新标题', $track->title);
@@ -411,17 +431,16 @@ class ListenBookApiTest extends TestCase
             'sort_order' => 1, 'status' => 1,
         ]);
 
-        $this->withSession(['admin_auth' => true])
-            ->get('/admin/albums')
+        // 页面只直出骨架，编辑表单由 JS 按接口数据渲染，这里核对模板里仍具备所需字段
+        $this->get('/admin/albums')
             ->assertOk()
             ->assertSee('name="description"', false)
             ->assertSee('name="status"', false)
-            ->assertSee('edit-album-'.$album->id, false)
-            ->assertSee('action="'.route('admin.albums.destroy', $album).'"', false)
-            ->assertSee('其下所有音频及桶内文件会一并删除', false);
+            ->assertSee('edit-album-', false)
+            ->assertSee('/api/admin/albums/', false)
+            ->assertSee('及桶内文件会一并删除', false);
 
-        $this->withSession(['admin_auth' => true])
-            ->get('/admin/tracks')
+        $this->get('/admin/tracks')
             ->assertOk()
             ->assertSee('封面（留空表示不修改）')
             ->assertSee('edit-track-', false);
@@ -439,15 +458,11 @@ class ListenBookApiTest extends TestCase
             'sort_order' => 2, 'status' => 0,
         ]);
 
-        $html = $this->withSession(['admin_auth' => true])->get('/admin/albums')->assertOk()->getContent();
+        $items = $this->asAdmin()->getJson('/api/admin/albums')->assertOk()->json('data.items');
+        $row = collect($items)->firstWhere('id', $album->id);
 
-        $matched = preg_match('/<tr draggable="true" data-id="'.$album->id.'">(.*?)<\/tr>/s', $html, $row);
-        $this->assertSame(1, $matched, '未找到专辑行');
-
-        preg_match_all('/<td[^>]*>(.*?)<\/td>/s', $row[1], $cells);
-        // 列序：顺序 / 封面 / 名称 / 上架音频 / 操作
-        $this->assertCount(5, $cells[1]);
-        $this->assertSame('1', trim(strip_tags($cells[1][3])), '音频数应只统计已上架，与接口 track_count 同口径');
+        $this->assertNotNull($row, '未找到专辑行');
+        $this->assertSame(1, $row['tracks_count'], '音频数应只统计已上架，与接口 track_count 同口径');
     }
 
     public function test_cover_url_follows_cdn_domain_without_db_changes(): void
@@ -602,10 +617,10 @@ class ListenBookApiTest extends TestCase
         Storage::disk('cos')->put('audio/1/a.mp3', 'audio');
         Storage::disk('cos')->put('cover/1/a.png', 'cover');
 
-        $this->withSession(['admin_auth' => true])
-            ->delete('/admin/tracks/'.$track->id)
-            ->assertSessionHasNoErrors()
-            ->assertRedirect();
+        $this->asAdmin()
+            ->deleteJson('/api/admin/tracks/'.$track->id)
+            ->assertOk()
+            ->assertJsonPath('code', 0);
 
         // 软删保留 DB 记录，桶对象同步清掉
         $this->assertNotNull(Track::withTrashed()->find($track->id)->deleted_at);
@@ -648,10 +663,10 @@ class ListenBookApiTest extends TestCase
             Storage::disk('cos')->put($key, 'x');
         }
 
-        $this->withSession(['admin_auth' => true])
-            ->delete('/admin/albums/'.$album->id)
-            ->assertSessionHasNoErrors()
-            ->assertRedirect();
+        $this->asAdmin()
+            ->deleteJson('/api/admin/albums/'.$album->id)
+            ->assertOk()
+            ->assertJsonPath('code', 0);
 
         $this->assertNotNull(Album::withTrashed()->find($album->id)->deleted_at);
         foreach ([$track, $legacy, $old] as $item) {

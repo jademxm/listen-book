@@ -30,7 +30,9 @@
         <env name="SESSION_DRIVER" value="array"/>
         <env name="WX_APPID" value="wxd1742cec14ff6355"/>
         <env name="WX_SECRET" value="test-secret"/>
-        <env name="ADMIN_PASSWORD" value="test-admin-password"/>
+        <env name="JWT_SECRET" value="testing-jwt-secret-key-for-phpunit-only-0123456789abcdef"/>
+        <env name="JWT_TTL" value="120"/>
+        <env name="JWT_REFRESH_TTL" value="10080"/>
         <env name="COS_CDN_DOMAIN" value="https://cos.example.com"/>
     </php>
 </phpunit>

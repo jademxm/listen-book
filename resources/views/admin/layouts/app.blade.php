@@ -3,8 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="csrf-token" content="{{ csrf_token() }}">
 <title>@yield('title', $brand['name'])</title>
+<script>
+// 登录态守卫：无 token 立即跳登录页，避免渲染出空白骨架。
+// 真正的安全边界在服务端 /api/admin/*（Bearer 校验），这里只是 UX。
+(function () {
+  try {
+    if (!localStorage.getItem('lb_admin_at') && !localStorage.getItem('lb_admin_rt')) {
+      location.replace('{{ route('admin.login') }}');
+    }
+  } catch (e) {
+    location.replace('{{ route('admin.login') }}');
+  }
+})();
+</script>
 <style>
 :root { --line:#e3e6ea; --muted:#6b7280; --accent:{{ $brand['color'] }}; --danger:#a32d2d; --ok:#0f6e56; }
 * { box-sizing:border-box; }
@@ -13,6 +25,7 @@ header { display:flex; align-items:center; gap:20px; padding:12px 24px; backgrou
 header a { color:var(--accent); text-decoration:none; }
 header .brand { font-weight:600; margin-right:auto; display:flex; align-items:center; gap:8px; }
 header .brand-logo { height:22px; width:auto; max-width:120px; object-fit:contain; border-radius:4px; }
+header .who { color:var(--muted); font-size:13px; }
 main { max-width:1080px; margin:24px auto; padding:0 20px; }
 .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:20px; }
 h1 { font-size:20px; margin:0 0 16px; }
@@ -40,6 +53,8 @@ img.thumb { width:40px; height:40px; object-fit:cover; border-radius:4px; backgr
 tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
 .edit-form { max-width:640px; }
 .edit-form .row > div { flex:1; }
+.pager { display:flex; gap:8px; align-items:center; margin-top:16px; }
+.pager button { padding:5px 12px; }
 </style>
 </head>
 <body>
@@ -52,31 +67,49 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
   {{-- 层名来自 $levels（config/content.php ← .env 的 CONTENT_*） --}}
   <a href="{{ route('admin.tracks.index') }}">{{ $levels['item'] }}</a>
   <a href="{{ route('admin.albums.index') }}">{{ $levels['group'] }}</a>
-  <form method="POST" action="{{ route('admin.logout') }}" class="inline">@csrf<button class="ghost">退出</button></form>
+  <a href="{{ route('admin.admins.index') }}">管理员</a>
+  <span class="who" id="current-admin"></span>
+  <button type="button" class="ghost" id="logout-btn">退出</button>
 </header>
 <main>
-  @if(session('status'))<div class="msg ok">{{ session('status') }}</div>@endif
-  @if($errors->any())<div class="msg err">{{ $errors->first() }}</div>@endif
+  <div id="page-msg" class="msg" style="display:none"></div>
   @yield('content')
 </main>
+
+<script src="{{ asset('js/admin.js') }}?v=1"></script>
 <script>
-window.csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+(function () {
+  if (!window.requireAdmin()) return;
+
+  // 顶部显示当前账号
+  var who = window.adminSession.profile();
+  var el = document.getElementById('current-admin');
+  if (el) el.textContent = who.display_name || who.username || '';
+
+  document.getElementById('logout-btn').addEventListener('click', function () {
+    window.adminLogout();
+  });
+})();
+
 window.toggleEdit = function (id) {
   const row = document.getElementById(id);
   if (row) row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row';
 };
+
+/** 统一 POST：失败弹提示，degraded 时明确告知顺序已退化 */
 window.postJson = async function (url, body) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': window.csrfToken },
-    body: JSON.stringify(body)
-  });
-  const data = await res.json().catch(() => ({ ok: false, message: '响应解析失败' }));
-  if (!res.ok || !data.ok) { alert('操作失败：' + (data.message || res.status)); return false; }
-  // 目标行已失效（页面数据过期）时服务端会退化到「移到分组末尾」，这里明确告知而不是静默
-  if (data.degraded) alert(data.message || '目标行已失效，已移到该分组末尾');
-  return true;
+  try {
+    const data = await window.adminApi.post(url, body);
+    if (data && data.degraded) {
+      alert('目标行已失效（页面数据可能已过期），已移到该分组末尾，请刷新页面核对顺序。');
+    }
+    return true;
+  } catch (e) {
+    alert('操作失败：' + (e.message || '未知错误'));
+    return false;
+  }
 };
+
 /**
  * 行拖拽排序。
  * 落点在行的上半部分 → 插到该行之前；下半部分 → 插到该行之后（组内末行下半部分即移到末尾，target_id 传 null）。
@@ -91,6 +124,10 @@ window.bindReorder = function (selector, url, buildPayload, options) {
   const groupRows = (row) => allRows().filter(r => sameGroup(row, r));
 
   allRows().forEach(row => {
+    // 列表是 JS 重渲染的，同一行可能被多次传入，用标记避免重复绑定
+    if (row.dataset.lbReorderBound === '1') return;
+    row.dataset.lbReorderBound = '1';
+
     row.addEventListener('dragstart', e => {
       window.__lbMovingId = row.dataset.id;
       e.dataTransfer.effectAllowed = 'move';

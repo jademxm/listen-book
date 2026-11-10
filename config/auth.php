@@ -18,6 +18,12 @@ return [
             'driver' => 'sanctum',
             'provider' => 'wx_users',
         ],
+
+        // 后台：tymon/jwt-auth，token 走 Authorization: Bearer，provider 指向 admins
+        'admin' => [
+            'driver' => 'jwt',
+            'provider' => 'admins',
+        ],
     ],
 
     'providers' => [
@@ -29,6 +35,11 @@ return [
         'wx_users' => [
             'driver' => 'eloquent',
             'model' => App\Models\WxUser::class,
+        ],
+
+        'admins' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\Admin::class,
         ],
     ],
 
