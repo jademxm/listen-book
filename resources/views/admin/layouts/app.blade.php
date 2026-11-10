@@ -1,17 +1,29 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN"@if(request()->routeIs('admin.admins.index', 'admin.logs.index')) data-lb-role-gate @endif>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>@yield('title', $brand['name'])</title>
 <script>
-// 登录态守卫：无 token 立即跳登录页，避免渲染出空白骨架。
-// 真正的安全边界在服务端 /api/admin/*（Bearer 校验），这里只是 UX。
+// 登录态 + 角色守卫：必须放在 <head>，早于 body 渲染。
+// 真正的安全边界在服务端 /api/admin/*（Bearer + EnsureSuperAdmin），这里只是 UX。
 (function () {
+  var root = document.documentElement;
+
   try {
     if (!localStorage.getItem('lb_admin_at') && !localStorage.getItem('lb_admin_rt')) {
       location.replace('{{ route('admin.login') }}');
+      return;
     }
+
+    // 本地快照只用于让已确认的 super 提前看到顶部入口（减少闪烁），不承担最终判权。
+    // 受限页主体由上面的 CSS 默认隐藏，等 body 底部按 /api/admin/auth/me 校准后再放开：
+    // 快照可能刚被别人改过角色，不能拿它直接决定重定向。
+    var profile = {};
+    try {
+      profile = JSON.parse(localStorage.getItem('lb_admin_profile') || '{}') || {};
+    } catch (e) { /* 快照损坏，按非 super 处理 */ }
+    if (profile.role === 'super') root.classList.add('lb-super-ready');
   } catch (e) {
     location.replace('{{ route('admin.login') }}');
   }
@@ -19,6 +31,9 @@
 </script>
 <style>
 :root { --line:#e3e6ea; --muted:#6b7280; --accent:{{ $brand['color'] }}; --danger:#a32d2d; --ok:#0f6e56; }
+/* 角色门禁：默认隐藏，服务端实时 role 确认后再放开；JS 未执行时也不会泄露受限页按钮 */
+html[data-lb-role-gate]:not(.lb-role-ready) main { visibility:hidden; }
+html:not(.lb-super-ready) [data-super-only] { display:none; }
 * { box-sizing:border-box; }
 body { margin:0; font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; color:#1f2937; background:#f7f8fa; }
 header { display:flex; align-items:center; gap:20px; padding:12px 24px; background:#fff; border-bottom:1px solid var(--line); }
@@ -77,22 +92,46 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
   @yield('content')
 </main>
 
-<script src="{{ asset('js/admin.js') }}?v=1"></script>
+<script src="{{ asset('js/admin.js') }}?v=2"></script>
 <script>
 (function () {
   if (!window.requireAdmin()) return;
 
-  // 顶部显示当前账号；非 super 隐藏管理员/日志入口（服务端 /api/admin/* 才是真边界）
-  var who = window.adminSession.profile();
-  var el = document.getElementById('current-admin');
-  if (el) el.textContent = who.display_name || who.username || '';
+  var root = document.documentElement;
+  var gated = root.hasAttribute('data-lb-role-gate');
+  var tracksUrl = '{{ route('admin.tracks.index') }}';
+  var local = window.adminSession.profile();
 
-  if (who.role !== 'super') {
-    document.querySelectorAll('[data-super-only]').forEach(function (link) { link.remove(); });
-    if (location.pathname === '/admin/admins' || location.pathname === '/admin/logs') {
-      location.replace('{{ route('admin.tracks.index') }}');
+  function showWho(p) {
+    var el = document.getElementById('current-admin');
+    if (el) el.textContent = (p && (p.display_name || p.username)) || '';
+  }
+
+  /** 按服务端实时 role 显隐入口；受限页确认是 super 才解除隐藏，否则回音频页 */
+  function applyRole(p) {
+    var isSuper = !!p && p.role === 'super';
+    root.classList.toggle('lb-super-ready', isSuper);
+    showWho(p);
+
+    if (!gated) return;
+    if (isSuper) {
+      root.classList.add('lb-role-ready');
+    } else {
+      location.replace(tracksUrl);
     }
   }
+
+  showWho(local);
+
+  // 页面加载时校准一次 profile：角色被改动后无需重新登录即可反映到导航。
+  // me 失败（或拿到旧版 admin.js 缓存）时回退本地快照，避免受限页永久空白；
+  // 若期间已退出登录则不再动 DOM。
+  var session = window.adminSession;
+  var ready = session.syncProfile ? session.syncProfile() : Promise.resolve(null);
+  ready.then(function (p) {
+    if (!session.hasSession()) return;
+    applyRole(p || local);
+  });
 
   document.getElementById('logout-btn').addEventListener('click', function () {
     window.adminLogout();

@@ -74,6 +74,19 @@
     return refreshPromise;
   }
 
+  /**
+   * 页面加载时用 /api/admin/auth/me 校准本地 profile 快照。
+   * 角色被其他超级管理员改动后无需重新登录即可生效；请求失败时静默回退本地快照。
+   */
+  function syncProfile() {
+    return request('GET', '/api/admin/auth/me')
+      .then(function (admin) {
+        if (admin && admin.role) setSession({ admin: admin });
+        return admin || null;
+      })
+      .catch(function () { return null; });
+  }
+
   function buildOptions(method, body, extra) {
     var options = { method: method, headers: { Accept: 'application/json' } };
 
@@ -185,7 +198,8 @@
     profile: profile,
     setSession: setSession,
     clearSession: clearSession,
-    hasSession: hasSession
+    hasSession: hasSession,
+    syncProfile: syncProfile
   };
 
   window.adminApi = {

@@ -217,4 +217,49 @@ class AdminOperationLogTest extends TestCase
             ->assertSee('data-super-only', false)
             ->assertDontSee('id="log-delete"', false);
     }
+
+    public function test_restricted_pages_are_gated_before_body_renders(): void
+    {
+        // 受限页由服务端打标记，<head> 守卫据此在 body 渲染前隐藏主体，
+        // 普通管理员直接敲 URL 不会闪出「创建 / 重置密码 / 移除」按钮。
+        foreach (['/admin/admins', '/admin/logs'] as $path) {
+            $html = $this->get($path)->assertOk()->getContent();
+            $this->assertMatchesRegularExpression('/<html[^>]*\bdata-lb-role-gate\b/', $html, $path.' 未打角色门禁标记');
+            $this->assertStringContainsString('[data-lb-role-gate]:not(.lb-role-ready) main', $html, $path.' 缺少默认隐藏主体的样式');
+            $this->assertStringContainsString(':not(.lb-super-ready) [data-super-only]', $html, $path.' 缺少默认隐藏 super 入口的样式');
+        }
+
+        foreach (['/admin/tracks', '/admin/albums'] as $path) {
+            $html = $this->get($path)->assertOk()->getContent();
+            $this->assertDoesNotMatchRegularExpression('/<html[^>]*\bdata-lb-role-gate\b/', $html, $path.' 不应被角色门禁影响');
+        }
+
+        // 每个页面加载都会用 me 校准本地 profile 快照，且引用了新版本脚本
+        $html = $this->get('/admin/tracks')->getContent();
+        $this->assertStringContainsString('syncProfile', $html);
+        $this->assertStringContainsString('js/admin.js?v=2', $html);
+    }
+
+    public function test_me_returns_current_role_from_database(): void
+    {
+        $admin = $this->makeAdmin([
+            'username' => 'staff',
+            'phone' => '13900000009',
+            'role' => Admin::ROLE_ADMIN,
+        ]);
+        $token = $this->tokenFor($admin);
+
+        $this->withToken($token)->getJson('/api/admin/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.role', Admin::ROLE_ADMIN);
+
+        // 角色被别的超级管理员改动后，前端下一次 me 就能拿到新值，无需重新登录
+        $admin->forceFill(['role' => Admin::ROLE_SUPER])->save();
+        $this->app['auth']->forgetGuards();
+        $this->app['tymon.jwt']->unsetToken();
+
+        $this->withToken($token)->getJson('/api/admin/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.role', Admin::ROLE_SUPER);
+    }
 }
