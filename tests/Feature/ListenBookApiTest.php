@@ -14,6 +14,7 @@ use App\Services\ReorderService;
 use App\Support\CoverUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -26,6 +27,64 @@ class ListenBookApiTest extends TestCase
     {
         parent::setUp();
         Cache::flush();
+    }
+
+    public function test_catalog_version_survives_cache_clear_and_keeps_increasing(): void
+    {
+        $before = CatalogService::version();
+
+        // 起点是时间派生值：必须远大于历史上用过的 1..N，否则上线后会和客户端手里的旧号撞车
+        $this->assertGreaterThan(1000000, $before, '版本号不能从 1 起算');
+
+        $after = CatalogService::bump();
+        $this->assertSame($before + 1, $after);
+
+        // 模拟 optimize:clear / cache:clear —— 这正是旧实现版本号回退、客户端永远命中旧缓存的成因
+        Cache::flush();
+
+        $this->assertSame($after, CatalogService::version(), '清缓存后版本号不得回退');
+        $this->assertSame($after + 1, CatalogService::bump());
+    }
+
+    public function test_catalog_version_degrades_without_meta_table(): void
+    {
+        // 漏跑 migrate 时不能把接口打成 500：退回时间派生值，仍然比历史小整数大
+        Schema::drop('catalog_meta');
+
+        $this->assertGreaterThan(1000000, CatalogService::version());
+        $this->assertGreaterThan(1000000, CatalogService::bump());
+        $this->getJson('/api/v1/catalog/version')->assertOk()->assertJsonPath('code', 0);
+    }
+
+    public function test_reorder_changes_version_so_clients_refetch_track_order(): void
+    {
+        $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
+        foreach (['A', 'B', 'C'] as $i => $title) {
+            Track::create([
+                'album_id' => $album->id,
+                'title' => $title,
+                'object_key' => 'audio/'.$title.'.mp3',
+                'sort_order' => $i + 1,
+                'status' => 1,
+            ]);
+        }
+
+        $first = $this->getJson('/api/v1/albums/'.$album->id.'/tracks')->assertOk();
+        $first->assertJsonPath('data.list.0.title', 'A');
+        $firstVersion = $first->json('data.catalog_version');
+
+        $a = Track::where('title', 'A')->firstOrFail();
+        $c = Track::where('title', 'C')->firstOrFail();
+        app(ReorderService::class)->tracks($album->id, $c->id, $a->id);
+        CatalogService::bump();
+
+        $second = $this->getJson('/api/v1/albums/'.$album->id.'/tracks')->assertOk();
+        $second->assertJsonPath('data.list.0.title', 'C');
+        $this->assertGreaterThan(
+            $firstVersion,
+            $second->json('data.catalog_version'),
+            '排序变化必须让 catalog_version 前进，否则客户端会一直用旧缓存'
+        );
     }
 
     public function test_only_published_tracks_are_exposed(): void

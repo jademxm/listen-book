@@ -401,8 +401,8 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 | 方法 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
 | POST | `/api/v1/auth/login` | 限流 30/min | `{code}` → `{token, user}` |
-| GET | `/api/v1/bootstrap` | 无 | 版本戳 + 公告 |
-| GET | `/api/v1/catalog/version` | 无 | 版本戳 |
+| GET | `/api/v1/bootstrap` | 无 | 版本戳 + 公告 + 内容层名（`content.level_names` / `max_depth`） |
+| GET | `/api/v1/catalog/version` | 无 | 版本戳（落库 `catalog_meta`，只增不减） |
 | GET | `/api/v1/albums?page=&per_page=` | 无 | 已上架专辑 |
 | GET | `/api/v1/albums/{id}/tracks?page=&per_page=` | 无 | 播放列表，按 sort_order |
 | GET | `/api/v1/me/histories` | Bearer | 播放历史 |
@@ -432,6 +432,16 @@ php artisan tinker --execute="try { echo Storage::disk('cos')->put('_probe/selft
 分组以数据库为准：`/admin/tracks/reorder` 的 `album_id` 仅作参考，实际按被移动音频**当前所属专辑**排序；`target_id` 已不在该专辑（页面数据过期、行被删除或移出）时**不返回 422**，而是退化为「移到该专辑末尾」并返回 `{ok:true, degraded:true, message}`，前端据此提示刷新。`/admin/albums/reorder` 同理（目标专辑失效 → 移到末尾）。
 
 后台拖拽的落点决定方向：落在目标行的**上半部分**＝插到该行之前，**下半部分**＝插到该行之后；落在最后一行下半部分即移到末尾（前端传 `target_id: null`）。音频列表按 `album_id` + `sort_order` 排序后**单表分页**（每页 30 条），不再按专辑分组渲染——分组原先做在分页之后，同一专辑跨页会出现两个同名表头。跨专辑拖拽在前端直接拒绝（`dragover` 给「禁止」光标、落下时提示），后端也按音频**当前所属专辑**重排，不会把音频拖到别的专辑里。
+
+### 目录版本号（`catalog_version`）
+
+客户端列表缓存的有效性完全靠这个数字判断：小程序每次进列表页先取 `/catalog/version`，与本地缓存的版本号**严格相等**才复用，否则重新拉取。所以它必须**单调递增**。
+
+- 值存在 `catalog_meta` 表（单行 `key='catalog_version'`），后台任何写操作（上传 / 编辑 / 上下架 / 删除 / 拖拽排序）成功后 `value = value + 1`。
+- **不能存进 Cache**。`php artisan cache:clear`、`optimize:clear` 都会把它清掉，旧的 `Cache::get(key, 1)` 会回退到 1；客户端手里那个更大的旧号一旦和服务端重新涨上来的值撞上，就会命中旧列表、从此不再刷新 —— 表现就是「后台拖了顺序，小程序纹丝不动」。
+- 迁移插入的初始值是**当前时间戳**（约 1.79e9），远大于历史上用过的 1..N，上线后所有客户端必然强制刷新一次。
+- 版本号同时是服务端列表缓存的命名空间（`catalog:v{version}:albums`），bump 后自然读新缓存，无需逐项清理。
+- 漏跑 `php artisan migrate` 不会 500：`version()` 退化为时间派生值（每次都不同 → 等于禁用缓存），日志里会有一条「版本表不可用」的 warning。看到它就去补迁移。
 
 ---
 
