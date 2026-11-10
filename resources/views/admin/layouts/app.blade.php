@@ -72,42 +72,62 @@ window.postJson = async function (url, body) {
   });
   const data = await res.json().catch(() => ({ ok: false, message: '响应解析失败' }));
   if (!res.ok || !data.ok) { alert('操作失败：' + (data.message || res.status)); return false; }
+  // 目标行已失效（页面数据过期）时服务端会退化到「移到分组末尾」，这里明确告知而不是静默
+  if (data.degraded) alert(data.message || '目标行已失效，已移到该分组末尾');
   return true;
 };
 /**
  * 行拖拽排序。
- * 落点在行的上半部分 → 插到该行之前；下半部分 → 插到该行之后（末行下半部分即移到末尾，target_id 传 null）。
- * options.sameGroup(movingRow, targetRow) 用于限制跨分组拖拽；options.groupHint 是拒绝时的提示语。
+ * 落点在行的上半部分 → 插到该行之前；下半部分 → 插到该行之后（组内末行下半部分即移到末尾，target_id 传 null）。
+ * options.sameGroup(movingRow, targetRow) 限制跨分组拖拽；options.groupHint 为拒绝提示。
  */
 window.bindReorder = function (selector, url, buildPayload, options) {
   const opts = options || {};
-  const sameGroup = opts.sameGroup || null;
+  const sameGroup = opts.sameGroup || (() => true);
   const groupHint = opts.groupHint || '只能在同一分组内排序';
   const allRows = () => Array.from(document.querySelectorAll(selector));
+  // 组内行按文档顺序排列：落点计算不再依赖 nextElementSibling 单步遍历，天然跳过编辑行与其他分组
+  const groupRows = (row) => allRows().filter(r => sameGroup(row, r));
 
   allRows().forEach(row => {
-    row.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', row.dataset.id));
-    row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('drag-over'); });
+    row.addEventListener('dragstart', e => {
+      window.__lbMovingId = row.dataset.id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', row.dataset.id);
+    });
+    row.addEventListener('dragend', () => {
+      window.__lbMovingId = '';
+      row.classList.remove('drag-over');
+    });
+    // 跨分组时直接给「禁止」光标，不必等到 drop 才提示
+    row.addEventListener('dragover', e => {
+      const movingRow = allRows().find(r => r.dataset.id === window.__lbMovingId);
+      if (movingRow && !sameGroup(movingRow, row)) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      row.classList.add('drag-over');
+    });
     row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
     row.addEventListener('drop', async e => {
       e.preventDefault();
       row.classList.remove('drag-over');
-      const movingId = e.dataTransfer.getData('text/plain');
+      const movingId = e.dataTransfer.getData('text/plain') || window.__lbMovingId;
+      window.__lbMovingId = '';
       if (!movingId || movingId === row.dataset.id) return;
 
       const movingRow = allRows().find(r => r.dataset.id === movingId);
       if (!movingRow) return;
-      if (sameGroup && !sameGroup(movingRow, row)) { alert(groupHint); return; }
+      if (!sameGroup(movingRow, row)) { alert(groupHint); return; }
 
       const rect = row.getBoundingClientRect();
       const insertAfter = e.clientY - rect.top > rect.height / 2;
       let targetRow = row;
       if (insertAfter) {
-        // 跳过非拖拽行（如行内编辑行），找下一个同组目标；同组没有下一行则落到末尾
-        let next = row.nextElementSibling;
-        while (next && !next.matches(selector)) next = next.nextElementSibling;
-        targetRow = (next && (!sameGroup || sameGroup(movingRow, next))) ? next : null;
+        const rows = groupRows(movingRow);
+        const index = rows.indexOf(row);
+        targetRow = (index >= 0 && index + 1 < rows.length) ? rows[index + 1] : null;
       }
+      if (targetRow === movingRow) return; // 原地，无需请求
 
       if (await window.postJson(url, buildPayload(Number(movingId), targetRow, movingRow))) location.reload();
     });

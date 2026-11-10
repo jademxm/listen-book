@@ -21,26 +21,39 @@ class ReorderController extends Controller
         }
 
         try {
-            $service->tracks((int) $request->input('album_id'), $trackId, $request->targetId());
+            $degraded = $service->tracks((int) $request->input('album_id'), $trackId, $request->targetId());
         } catch (InvalidArgumentException $e) {
             return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
         }
 
         CatalogService::bump();
 
-        return response()->json(['ok' => true, 'catalog_version' => CatalogService::version()]);
+        return response()->json($this->ok($degraded));
     }
 
     public function albums(ReorderRequest $request, ReorderService $service): JsonResponse
     {
         try {
-            $service->albums((int) $request->input('album_id'), $request->targetId());
+            $degraded = $service->albums((int) $request->input('album_id'), $request->targetId());
         } catch (InvalidArgumentException $e) {
             return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
         }
 
         CatalogService::bump();
 
-        return response()->json(['ok' => true, 'catalog_version' => CatalogService::version()]);
+        return response()->json($this->ok($degraded));
+    }
+
+    /** degraded 表示目标行已失效、已退化为移到分组末尾，前端据此提示刷新 */
+    private function ok(bool $degraded): array
+    {
+        $payload = ['ok' => true, 'catalog_version' => CatalogService::version()];
+
+        if ($degraded) {
+            $payload['degraded'] = true;
+            $payload['message'] = '目标行已失效（页面数据可能已过期），已移到该分组末尾，请刷新页面核对顺序。';
+        }
+
+        return $payload;
     }
 }

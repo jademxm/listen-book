@@ -87,6 +87,77 @@ class ListenBookApiTest extends TestCase
         );
     }
 
+    public function test_reorder_falls_back_to_end_when_target_row_is_gone(): void
+    {
+        [$album, $other] = $this->makeTwoAlbumsWithTracks();
+
+        // 目标行已不在该专辑（例如页面打开后数据被改动），不应报 422，而是退化为移到末尾
+        $staleTarget = Track::where('album_id', $other->id)->firstOrFail();
+        $a = Track::where('album_id', $album->id)->where('title', 'A')->firstOrFail();
+
+        $this->withSession(['admin_auth' => true])
+            ->postJson('/admin/tracks/reorder', [
+                'album_id' => $album->id,
+                'track_id' => $a->id,
+                'target_id' => $staleTarget->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('degraded', true);
+
+        $this->assertSame(
+            ['B', 'C', 'A'],
+            Track::where('album_id', $album->id)->orderBy('sort_order')->pluck('title')->all()
+        );
+    }
+
+    public function test_reorder_uses_current_album_when_stale_album_id_given(): void
+    {
+        [$album, $other] = $this->makeTwoAlbumsWithTracks();
+
+        // 前端传来的 album_id 已过期（track 实际仍在 $album），应以数据库为准而不是报错
+        $c = Track::where('album_id', $album->id)->where('title', 'C')->firstOrFail();
+        $b = Track::where('album_id', $album->id)->where('title', 'B')->firstOrFail();
+
+        $this->withSession(['admin_auth' => true])
+            ->postJson('/admin/tracks/reorder', [
+                'album_id' => $other->id,
+                'track_id' => $c->id,
+                'target_id' => $b->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonMissingPath('degraded');
+
+        $this->assertSame(
+            ['A', 'C', 'B'],
+            Track::where('album_id', $album->id)->orderBy('sort_order')->pluck('title')->all()
+        );
+    }
+
+    /** @return array{0: Album, 1: Album} 前者 3 条 A/B/C，后者 1 条 D */
+    private function makeTwoAlbumsWithTracks(): array
+    {
+        $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
+        foreach (['A', 'B', 'C'] as $i => $title) {
+            Track::create([
+                'album_id' => $album->id,
+                'title' => $title,
+                'object_key' => 'audio/'.$title.'.mp3',
+                'sort_order' => $i + 1,
+                'status' => 1,
+            ]);
+        }
+
+        $other = Album::create(['title' => '另一个专辑', 'sort_order' => 2, 'status' => 1]);
+        Track::create([
+            'album_id' => $other->id, 'title' => 'D', 'object_key' => 'audio/D.mp3',
+            'sort_order' => 1, 'status' => 1,
+        ]);
+
+        return [$album, $other];
+    }
+
     public function test_history_report_upserts_and_bumps_version(): void
     {
         $album = Album::create(['title' => '测试专辑', 'sort_order' => 1, 'status' => 1]);
