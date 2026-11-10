@@ -240,18 +240,38 @@ class AdminAuthTest extends TestCase
         $this->assertSame(1, $admin->fresh()->status);
     }
 
-    public function test_cannot_remove_the_last_super_admin(): void
+    public function test_admin_role_cannot_manage_admins(): void
     {
         $boss = $this->makeAdmin(['username' => 'boss', 'phone' => '13900000001']);
         $this->makeAdmin(['username' => 'staff', 'phone' => '13900000002', 'role' => Admin::ROLE_ADMIN]);
 
         $staffToken = $this->loginTokens('staff')['access_token'];
 
+        // 角色门禁优先于业务校验：普通 admin 连列表都读不到，更删不了 super
+        $this->withToken($staffToken)->getJson('/api/admin/admins')
+            ->assertStatus(403)
+            ->assertJsonPath('code', 40302);
+
         $this->withToken($staffToken)->deleteJson('/api/admin/admins/'.$boss->id)
-            ->assertStatus(422)
-            ->assertJsonPath('code', 42202);
+            ->assertStatus(403);
 
         $this->assertNull($boss->fresh()->deleted_at);
+    }
+
+    public function test_cannot_remove_the_last_super_admin(): void
+    {
+        $boss = $this->makeAdmin(['username' => 'boss', 'phone' => '13900000001']);
+        $token = $this->loginTokens('boss')['access_token'];
+
+        // 只剩一个 super 时，即使是他本人也不能把自己降权
+        $this->withToken($token)->patchJson('/api/admin/admins/'.$boss->id, [
+            'username' => 'boss',
+            'phone' => '13900000001',
+            'role' => Admin::ROLE_ADMIN,
+            'status' => 1,
+        ])->assertStatus(422)->assertJsonPath('code', 42202);
+
+        $this->assertSame(Admin::ROLE_SUPER, $boss->fresh()->role);
     }
 
     public function test_super_admin_can_create_and_update_another_admin(): void

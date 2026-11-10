@@ -8,12 +8,9 @@ use App\Support\CoverUrl;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Album extends Model
 {
-    use SoftDeletes;
-
     protected $fillable = ['title', 'cover_url', 'cover_key', 'description', 'sort_order', 'status'];
 
     protected $casts = [

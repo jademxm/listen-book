@@ -67,7 +67,8 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
   {{-- 层名来自 $levels（config/content.php ← .env 的 CONTENT_*） --}}
   <a href="{{ route('admin.tracks.index') }}">{{ $levels['item'] }}</a>
   <a href="{{ route('admin.albums.index') }}">{{ $levels['group'] }}</a>
-  <a href="{{ route('admin.admins.index') }}">管理员</a>
+  <a href="{{ route('admin.admins.index') }}" data-super-only>管理员</a>
+  <a href="{{ route('admin.logs.index') }}" data-super-only>操作日志</a>
   <span class="who" id="current-admin"></span>
   <button type="button" class="ghost" id="logout-btn">退出</button>
 </header>
@@ -81,10 +82,17 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
 (function () {
   if (!window.requireAdmin()) return;
 
-  // 顶部显示当前账号
+  // 顶部显示当前账号；非 super 隐藏管理员/日志入口（服务端 /api/admin/* 才是真边界）
   var who = window.adminSession.profile();
   var el = document.getElementById('current-admin');
   if (el) el.textContent = who.display_name || who.username || '';
+
+  if (who.role !== 'super') {
+    document.querySelectorAll('[data-super-only]').forEach(function (link) { link.remove(); });
+    if (location.pathname === '/admin/admins' || location.pathname === '/admin/logs') {
+      location.replace('{{ route('admin.tracks.index') }}');
+    }
+  }
 
   document.getElementById('logout-btn').addEventListener('click', function () {
     window.adminLogout();

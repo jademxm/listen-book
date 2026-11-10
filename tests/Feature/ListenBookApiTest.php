@@ -15,6 +15,7 @@ use App\Services\ReorderService;
 use App\Support\CoverUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
@@ -617,13 +618,26 @@ class ListenBookApiTest extends TestCase
         Storage::disk('cos')->put('audio/1/a.mp3', 'audio');
         Storage::disk('cos')->put('cover/1/a.png', 'cover');
 
+        DB::table('play_histories')->insert([
+            'wx_user_id' => 1, 'track_id' => $track->id, 'album_id' => $album->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('play_events')->insert([
+            'wx_user_id' => 1, 'track_id' => $track->id, 'album_id' => $album->id,
+            'session_id' => 's1', 'client_event_id' => 'e1', 'type' => 'tick',
+            'event_date' => '2026-11-10', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
         $this->asAdmin()
             ->deleteJson('/api/admin/tracks/'.$track->id)
             ->assertOk()
             ->assertJsonPath('code', 0);
 
-        // 软删保留 DB 记录，桶对象同步清掉
-        $this->assertNotNull(Track::withTrashed()->find($track->id)->deleted_at);
+        // 彻底删：主记录、播放历史、收听事件一起消失，桶对象同步清掉；专辑本身保留
+        $this->assertDatabaseMissing('tracks', ['id' => $track->id]);
+        $this->assertDatabaseMissing('play_histories', ['track_id' => $track->id]);
+        $this->assertDatabaseMissing('play_events', ['track_id' => $track->id]);
+        $this->assertDatabaseHas('albums', ['id' => $album->id]);
         Storage::disk('cos')->assertMissing('audio/1/a.mp3');
         Storage::disk('cos')->assertMissing('cover/1/a.png');
     }
@@ -652,12 +666,21 @@ class ListenBookApiTest extends TestCase
             'cover_url' => 'https://legacy.example.com/cover/9/2.png',
             'sort_order' => 2, 'status' => 1,
         ]);
-        // 之前已软删但桶对象没清的，也要一并清掉
+        // 下架状态的曲目同样要被级联删除
         $old = Track::create([
             'album_id' => $album->id, 'title' => '旧集',
             'object_key' => 'audio/9/old.mp3', 'sort_order' => 3, 'status' => 0,
         ]);
-        $old->delete();
+
+        DB::table('play_histories')->insert([
+            'wx_user_id' => 1, 'track_id' => $track->id, 'album_id' => $album->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('play_events')->insert([
+            'wx_user_id' => 1, 'track_id' => $track->id, 'album_id' => $album->id,
+            'session_id' => 's2', 'client_event_id' => 'e2', 'type' => 'tick',
+            'event_date' => '2026-11-10', 'created_at' => now(), 'updated_at' => now(),
+        ]);
 
         foreach (['cover/9/album.png', 'audio/9/1.mp3', 'cover/9/1.png', 'audio/9/2.mp3', 'cover/9/2.png', 'audio/9/old.mp3'] as $key) {
             Storage::disk('cos')->put($key, 'x');
@@ -668,10 +691,12 @@ class ListenBookApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('code', 0);
 
-        $this->assertNotNull(Album::withTrashed()->find($album->id)->deleted_at);
+        $this->assertDatabaseMissing('albums', ['id' => $album->id]);
         foreach ([$track, $legacy, $old] as $item) {
-            $this->assertNotNull(Track::withTrashed()->find($item->id)->deleted_at);
+            $this->assertDatabaseMissing('tracks', ['id' => $item->id]);
         }
+        $this->assertDatabaseMissing('play_histories', ['album_id' => $album->id]);
+        $this->assertDatabaseMissing('play_events', ['album_id' => $album->id]);
         foreach (['cover/9/album.png', 'audio/9/1.mp3', 'cover/9/1.png', 'audio/9/2.mp3', 'cover/9/2.png', 'audio/9/old.mp3'] as $key) {
             Storage::disk('cos')->assertMissing($key);
         }

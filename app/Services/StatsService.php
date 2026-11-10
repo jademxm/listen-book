@@ -33,9 +33,7 @@ class StatsService
             ->join('albums as a', 'a.id', '=', 't.album_id')
             ->where('h.wx_user_id', $user->id)
             ->where('t.status', 1)
-            ->whereNull('t.deleted_at')
             ->where('a.status', 1)
-            ->whereNull('a.deleted_at')
             ->orderByDesc('h.last_played_at')
             ->get([
                 'h.track_id', 'h.progress_sec', 'h.duration_sec', 'h.finished', 'h.last_played_at',

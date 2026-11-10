@@ -8,12 +8,9 @@ use App\Support\CoverUrl;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Track extends Model
 {
-    use SoftDeletes;
-
     protected $fillable = [
         'album_id', 'title', 'cover_url', 'cover_key', 'object_key', 'mime',
         'size_bytes', 'duration_sec', 'sort_order', 'status', 'play_count',

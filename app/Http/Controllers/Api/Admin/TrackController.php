@@ -8,12 +8,15 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreTrackRequest;
 use App\Http\Requests\UpdateTrackRequest;
 use App\Models\Album;
+use App\Models\PlayEvent;
+use App\Models\PlayHistory;
 use App\Models\Track;
 use App\Services\AudioStorageService;
 use App\Services\CatalogService;
 use App\Support\Api;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -123,17 +126,23 @@ class TrackController extends Controller
 
     public function destroy(Track $track, AudioStorageService $storage): JsonResponse
     {
+        $trackId = $track->id;
         $keys = [
             $track->object_key,
             $track->cover_key,
             $track->getRawOriginal('cover_url'),
         ];
 
-        // 软删：保留 DB 记录，播放历史不会变成孤儿引用；桶对象同步清理，不可恢复
-        $track->delete();
+        // 彻底删：曲目、播放历史、收听事件同一事务；桶对象在提交后清理
+        DB::transaction(function () use ($trackId): void {
+            PlayHistory::query()->where('track_id', $trackId)->delete();
+            PlayEvent::query()->where('track_id', $trackId)->delete();
+            Track::query()->whereKey($trackId)->delete();
+        });
+
         $deleted = $storage->deleteMany($keys);
         CatalogService::bump();
 
-        return Api::ok(['objects_removed' => $deleted], '已移除，同步清理桶对象 '.$deleted.' 个');
+        return Api::ok(['objects_removed' => $deleted], '已彻底删除，同步清理桶对象 '.$deleted.' 个');
     }
 }

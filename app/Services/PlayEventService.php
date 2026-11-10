@@ -33,7 +33,7 @@ class PlayEventService
         $upperBound = $now->copy()->addSeconds(self::MAX_FUTURE_SEC);
 
         $trackIds = array_values(array_unique(array_map('intval', array_column($events, 'track_id'))));
-        $durations = Track::withTrashed()->whereIn('id', $trackIds)->pluck('duration_sec', 'id');
+        $durations = Track::query()->whereIn('id', $trackIds)->pluck('duration_sec', 'id');
 
         $existing = array_flip(PlayEvent::query()
             ->whereIn('client_event_id', array_column($events, 'client_event_id'))

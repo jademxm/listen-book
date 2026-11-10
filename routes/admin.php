@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Admin\AlbumController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AuthController;
+use App\Http\Controllers\Admin\OperationLogController;
 use App\Http\Controllers\Admin\TrackController;
 use Illuminate\Support\Facades\Route;
 
@@ -20,4 +21,5 @@ Route::prefix('admin')->name('admin.')->group(function () {
     Route::get('/tracks', [TrackController::class, 'index'])->name('tracks.index');
     Route::get('/albums', [AlbumController::class, 'index'])->name('albums.index');
     Route::get('/admins', [AdminUserController::class, 'index'])->name('admins.index');
+    Route::get('/logs', [OperationLogController::class, 'index'])->name('logs.index');
 });

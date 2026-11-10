@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreAlbumRequest;
 use App\Http\Requests\UpdateAlbumRequest;
 use App\Models\Album;
+use App\Models\PlayEvent;
+use App\Models\PlayHistory;
 use App\Models\Track;
 use App\Services\AudioStorageService;
 use App\Services\CatalogService;
@@ -63,7 +65,7 @@ class AlbumController extends Controller
         } catch (InvalidArgumentException|RuntimeException $e) {
             $storage->deleteQuietly($coverKey);
             if ($album) {
-                $album->forceDelete();
+                $album->delete();
             }
 
             return Api::fail(42210, $e->getMessage(), null, 422);
@@ -101,10 +103,11 @@ class AlbumController extends Controller
 
     public function destroy(Album $album, AudioStorageService $storage): JsonResponse
     {
-        // withTrashed：把此前已软删、但桶对象还在的音频也一并清掉
-        $tracks = Track::withTrashed()
-            ->where('album_id', $album->id)
+        $albumId = $album->id;
+        $tracks = Track::query()
+            ->where('album_id', $albumId)
             ->get(['id', 'object_key', 'cover_key', 'cover_url']);
+        $trackIds = $tracks->pluck('id')->all();
 
         $keys = [$album->cover_key, $album->getRawOriginal('cover_url')];
         foreach ($tracks as $track) {
@@ -113,8 +116,16 @@ class AlbumController extends Controller
             $keys[] = $track->getRawOriginal('cover_url');
         }
 
-        DB::transaction(function () use ($album): void {
-            Track::where('album_id', $album->id)->delete(); // 软删
+        // 彻底删：主记录、播放历史、收听事件在一个事务里清干净，不留孤儿引用
+        DB::transaction(function () use ($album, $albumId, $trackIds): void {
+            if ($trackIds !== []) {
+                PlayHistory::query()->whereIn('track_id', $trackIds)->delete();
+                PlayEvent::query()->whereIn('track_id', $trackIds)->delete();
+            }
+            // 冗余的 album_id 列：历史行可能已无对应 track，按专辑维度再兜底一次
+            PlayHistory::query()->where('album_id', $albumId)->delete();
+            PlayEvent::query()->where('album_id', $albumId)->delete();
+            Track::query()->where('album_id', $albumId)->delete();
             $album->delete();
         });
 
@@ -123,7 +134,7 @@ class AlbumController extends Controller
 
         return Api::ok(
             ['tracks_removed' => $tracks->count(), 'objects_removed' => $deleted],
-            '已移除，同步清理桶对象 '.$deleted.' 个'
+            '已彻底删除，同步清理桶对象 '.$deleted.' 个'
         );
     }
 }
