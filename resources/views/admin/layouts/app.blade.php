@@ -49,8 +49,9 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
     @if(!empty($brand['logo']))<img class="brand-logo" src="{{ $brand['logo'] }}" alt="{{ $brand['name'] }}">@endif
     <span>{{ $brand['name'] }}</span>
   </span>
-  <a href="{{ route('admin.tracks.index') }}">音频</a>
-  <a href="{{ route('admin.albums.index') }}">专辑</a>
+  {{-- 层名来自 $levels（config/content.php ← .env 的 CONTENT_*） --}}
+  <a href="{{ route('admin.tracks.index') }}">{{ $levels['item'] }}</a>
+  <a href="{{ route('admin.albums.index') }}">{{ $levels['group'] }}</a>
   <form method="POST" action="{{ route('admin.logout') }}" class="inline">@csrf<button class="ghost">退出</button></form>
 </header>
 <main>

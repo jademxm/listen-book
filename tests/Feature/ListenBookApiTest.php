@@ -217,6 +217,48 @@ class ListenBookApiTest extends TestCase
             ->assertDontSee('upload_max_filesize');
     }
 
+    public function test_bootstrap_ships_content_level_names(): void
+    {
+        $this->getJson('/api/v1/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('data.content.level_names.group', '专辑')
+            ->assertJsonPath('data.content.level_names.item', '音频')
+            ->assertJsonPath('data.content.max_depth', 2);
+    }
+
+    public function test_content_level_names_are_configurable_and_reach_admin_views(): void
+    {
+        // 只换「人看到的字」：接口路径与字段名不受影响
+        config([
+            'content.level_names.group' => '课程',
+            'content.level_names.item' => '章节',
+            'content.max_depth' => 3,
+        ]);
+
+        $this->getJson('/api/v1/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('data.content.level_names.group', '课程')
+            ->assertJsonPath('data.content.level_names.item', '章节')
+            ->assertJsonPath('data.content.max_depth', 3);
+
+        $this->withSession(['admin_auth' => true])
+            ->get('/admin/albums')
+            ->assertOk()
+            ->assertSee('课程管理')
+            ->assertSee('上架章节')
+            ->assertDontSee('专辑管理');
+
+        $this->withSession(['admin_auth' => true])
+            ->get('/admin/tracks')
+            ->assertOk()
+            ->assertSee('章节管理')
+            ->assertSee('所属课程')
+            ->assertDontSee('音频管理');
+
+        // 契约不变：路由与表字段仍是 albums / tracks
+        $this->getJson('/api/v1/albums')->assertOk();
+    }
+
     public function test_admin_can_update_album_and_unpublish_it(): void
     {
         $album = Album::create(['title' => '旧名称', 'description' => '旧简介', 'sort_order' => 1, 'status' => 1]);

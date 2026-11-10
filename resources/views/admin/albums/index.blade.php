@@ -1,14 +1,16 @@
 @extends('admin.layouts.app')
-@section('title', '专辑管理')
+@php($group = $levels['group'])
+@php($item = $levels['item'])
+@section('title', $group.'管理')
 
 @section('content')
-<h1>专辑管理</h1>
+<h1>{{ $group }}管理</h1>
 
 <div class="card">
-  <h2>新建专辑</h2>
+  <h2>新建{{ $group }}</h2>
   <form method="POST" action="{{ route('admin.albums.store') }}" enctype="multipart/form-data">
     @csrf
-    <label for="title">专辑名称</label>
+    <label for="title">{{ $group }}名称</label>
     <input id="title" type="text" name="title" maxlength="120" required>
     <label for="description">简介（选填）</label>
     <input id="description" type="text" name="description" maxlength="500">
@@ -19,9 +21,9 @@
 </div>
 
 <div class="card">
-  <h2>专辑列表（拖动行调整顺序：落在行的上半部分插到其之前，下半部分插到其之后）</h2>
+  <h2>{{ $group }}列表（拖动行调整顺序：落在行的上半部分插到其之前，下半部分插到其之后）</h2>
   <table>
-    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">上架音频</th><th style="width:220px">操作</th></tr></thead>
+    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">上架{{ $item }}</th><th style="width:220px">操作</th></tr></thead>
     <tbody>
       @forelse($albums as $album)
         <tr draggable="true" data-id="{{ $album->id }}">
@@ -30,9 +32,9 @@
           <td>{{ $album->title }}<div class="muted" style="font-size:12px">{{ $album->description }}</div></td>
           <td>{{ $album->tracks_count }}</td>
           <td>
-            <a class="btn ghost" href="{{ route('admin.tracks.index', ['album_id' => $album->id]) }}">查看音频</a>
+            <a class="btn ghost" href="{{ route('admin.tracks.index', ['album_id' => $album->id]) }}">查看{{ $item }}</a>
             <button type="button" class="ghost" onclick="toggleEdit('edit-album-{{ $album->id }}')">编辑</button>
-            <form method="POST" action="{{ route('admin.albums.destroy', $album) }}" class="inline" onsubmit="return confirm('确认移除该专辑？其下所有音频及桶内文件会一并删除，不可恢复。')">@csrf @method('DELETE')
+            <form method="POST" action="{{ route('admin.albums.destroy', $album) }}" class="inline" onsubmit="return confirm('确认移除该{{ $group }}？其下所有{{ $item }}及桶内文件会一并删除，不可恢复。')">@csrf @method('DELETE')
               <button class="danger">移除</button>
             </form>
             <div class="muted" style="font-size:12px">{{ $album->status ? '已上架' : '已下架' }}</div>
@@ -44,7 +46,7 @@
               @csrf @method('PATCH')
               <div class="row">
                 <div>
-                  <label>专辑名称</label>
+                  <label>{{ $group }}名称</label>
                   <input type="text" name="title" maxlength="120" value="{{ $album->title }}" required>
                 </div>
                 <div>
@@ -68,11 +70,11 @@
           </td>
         </tr>
       @empty
-        <tr><td colspan="5" class="muted">还没有专辑，先创建一个。</td></tr>
+        <tr><td colspan="5" class="muted">还没有{{ $group }}，先创建一个。</td></tr>
       @endforelse
     </tbody>
   </table>
-  <p class="muted" style="font-size:12px">拖动后按落点插入：落在行的下半部分即插到该行之后，落在最后一行下半部分即移到末尾。音频数为「已上架」数量，与小程序端显示一致。</p>
+  <p class="muted" style="font-size:12px">拖动后按落点插入：落在行的下半部分即插到该行之后，落在最后一行下半部分即移到末尾。{{ $item }}数为「已上架」数量，与小程序端显示一致。</p>
 </div>
 @endsection
 

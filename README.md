@@ -49,6 +49,8 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 | `WX_APPID` / `WX_SECRET` | AppID 已填；AppSecret 在 mp 后台生成，**只存服务端** |
 | `ADMIN_PASSWORD` | 后台登录密码，单管理员 session，务必设强密码 |
 | `BRAND_NAME` / `BRAND_LOGO` / `BRAND_COLOR` | **品牌三项，换项目只改这里**。站名留空回退 `APP_NAME`；Logo 填站内相对路径或完整 URL，留空只显示文字；主色作用于按钮 / 链接 / 选中态。视图统一读 `$brand`（`config/brand.php`，由 `AppServiceProvider` `View::share`），改完 `php artisan config:clear` 生效 |
+| `CONTENT_GROUP_NAME` / `CONTENT_ITEM_NAME` | **内容层名的显示称呼**，默认「专辑 / 音频」。只影响后台界面与小程序里的文案，不改 API 路径、表名、字段名。改成「课程 / 章节」后小程序通过 `GET /bootstrap` 自动跟上，**不需要重新发版**。改完 `php artisan config:clear` |
+| `CONTENT_MAX_DEPTH` | 内容树最大层级，默认 `2`。当前实现固定两层（容器 → 叶子），此项仅随 bootstrap 下发，为多层结构预留 |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_REGION` / `COS_BUCKET` / `COS_ENDPOINT` | 控制台「访问密钥 / 存储桶」取值；`COS_BUCKET` 形如 `name-1250000000`（含 AppId 后缀）；endpoint 用 `https://cos.<region>.myqcloud.com`；**前两项必填，留空上传会报 IMDS 超时，见第 3 节** |
 | `COS_CDN_DOMAIN` | **音频与封面共用的对外访问根地址**，不带路径/结尾斜杠。当前填标准 COS 的 bucket 默认访问域名 `https://<bucket>.cos.<region>.myqcloud.com`；路径 B 或日后启用自定义域名时填 `https://cos.mixyj.cn`。它同时是小程序 `downloadFile` 合法域名。**封面与音频 URL 都由它动态拼接，换桶/换域名只改这一项，不用刷数据库**。**`COS_BUCKET` / `COS_REGION` / `COS_ENDPOINT` / `COS_CDN_DOMAIN` 四项必须指向同一地域同一桶** |
 | `AUDIO_DRIVER` | `s3`（默认，S3 兼容接口）/ `local`（服务器挂载目录）。业务代码 `Storage::disk('cos')` 不变；切换后执行 `php artisan config:clear` |
@@ -63,6 +65,7 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 - `config/filesystems.php`：`cos` 磁盘（`s3` / `local` 由 `AUDIO_DRIVER` 切换）；`s3` 分支显式设 `credentials => false`，避免密钥缺失时 AWS SDK 回退实例元数据服务（169.254.169.254）
 - `config/services.php`：`wechat` / `cos.cdn_domain` / `admin.password` / `miniapp.announcement`
 - `config/brand.php`：品牌站名 / Logo / 主色，读 `.env` 的 `BRAND_*`；`AppServiceProvider` 已 `View::share('brand', config('brand'))`，Blade 里写 `$brand['name']` / `$brand['logo']` / `$brand['color']`，视图不出现站名与色值字面量
+- `config/content.php`：内容层名与层级上限，读 `.env` 的 `CONTENT_*`。`AppServiceProvider` 用 `View::composer('admin.*')` 每次渲染注入 `$levels`，后台 Blade 写 `$levels['group']` / `$levels['item']`；`GET /api/v1/bootstrap` 的 `content` 段由它下发。**不用 `View::share`**——那会在 `boot()` 取一次值就固化，改 config 视图不跟
 - `config/app.php`：时区读 `APP_TIMEZONE`；其余为 Laravel 10 官方默认
 - `routes/api.php` → `require api.v1.php`（由 `RouteServiceProvider` 套 `/api` 前缀 + `api` 中间件组）
 - `routes/web.php` → `require admin.php`（`web` 组：session / cookie / CSRF），`/` 重定向到后台音频页
