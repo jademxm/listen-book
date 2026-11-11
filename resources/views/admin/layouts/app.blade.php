@@ -70,6 +70,18 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
 .edit-form .row > div { flex:1; }
 .pager { display:flex; gap:8px; align-items:center; margin-top:16px; }
 .pager button { padding:5px 12px; }
+.progress { height:10px; border-radius:6px; background:#eef1f4; overflow:hidden; margin-top:12px; }
+.progress > i { display:block; height:100%; width:0; background:var(--accent); transition:width .15s linear; }
+.progress-text { font-size:12px; color:var(--muted); margin-top:6px; }
+.upload-queue { margin-top:12px; font-size:13px; }
+.upload-queue ul { margin:8px 0 0; padding-left:18px; max-height:190px; overflow:auto; }
+.upload-queue li.ok { color:var(--ok); }
+.upload-queue li.err { color:var(--danger); }
+.stat-cards { display:flex; gap:14px; flex-wrap:wrap; }
+.stat-cards > div { flex:1; min-width:160px; border:1px solid var(--line); border-radius:8px; padding:14px; }
+.stat-cards strong { display:block; font-size:22px; margin-top:6px; }
+.bars { display:flex; align-items:flex-end; gap:4px; height:120px; }
+.bars > span { flex:1; min-width:4px; background:var(--accent); border-radius:3px 3px 0 0; opacity:.8; }
 </style>
 </head>
 <body>
@@ -82,6 +94,7 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
   {{-- 层名来自 $levels（config/content.php ← .env 的 CONTENT_*） --}}
   <a href="{{ route('admin.tracks.index') }}">{{ $levels['item'] }}</a>
   <a href="{{ route('admin.albums.index') }}">{{ $levels['group'] }}</a>
+  <a href="{{ route('admin.stats.index') }}">数据面板</a>
   <a href="{{ route('admin.admins.index') }}" data-super-only>管理员</a>
   <a href="{{ route('admin.logs.index') }}" data-super-only>操作日志</a>
   <span class="who" id="current-admin"></span>
@@ -92,7 +105,7 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
   @yield('content')
 </main>
 
-<script src="{{ asset('js/admin.js') }}?v=2"></script>
+<script src="{{ asset('js/admin.js') }}?v=3"></script>
 <script>
 (function () {
   if (!window.requireAdmin()) return;

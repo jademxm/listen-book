@@ -103,25 +103,48 @@ class TrackController extends Controller
     {
         $data = $request->validated();
         $coverKey = null;
+        $oldAlbumId = (int) $track->album_id;
+        $newAlbumId = isset($data['album_id']) ? (int) $data['album_id'] : $oldAlbumId;
+        $moving = $newAlbumId !== $oldAlbumId;
 
         try {
             if ($request->hasFile('cover')) {
-                $coverKey = $storage->storeCover($request->file('cover'), $track->album_id);
+                // 换专辑时新封面归到目标专辑目录，object_key 保持不变、不搬桶对象
+                $coverKey = $storage->storeCover($request->file('cover'), $newAlbumId);
                 if ($coverKey) {
                     $data['cover_key'] = $coverKey;
                 }
             }
             unset($data['cover']);
-            $track->update($data);
-        } catch (InvalidArgumentException|RuntimeException $e) {
+
+            DB::transaction(function () use ($track, $data, $moving, $newAlbumId): void {
+                if ($moving) {
+                    $data['sort_order'] = ((int) Track::query()->where('album_id', $newAlbumId)->max('sort_order')) + 1;
+
+                    // 两张收听表冗余存了 album_id；删旧专辑时会按它兜底清理，
+                    // 不跟着回写就会误删已挪走曲目的历史与事件。
+                    PlayHistory::query()->where('track_id', $track->id)->update(['album_id' => $newAlbumId]);
+                    PlayEvent::query()->where('track_id', $track->id)->update(['album_id' => $newAlbumId]);
+                }
+
+                $track->update($data);
+            });
+        } catch (\Throwable $e) {
             $storage->deleteQuietly($coverKey);
+            if (! $e instanceof InvalidArgumentException && ! $e instanceof RuntimeException) {
+                throw $e;
+            }
 
             return Api::fail(42211, $e->getMessage(), null, 422);
         }
 
         CatalogService::bump();
 
-        return Api::ok(['id' => $track->id, 'status' => (int) $track->status], '已保存');
+        return Api::ok([
+            'id' => $track->id,
+            'status' => (int) $track->status,
+            'album_id' => (int) $track->album_id,
+        ], '已保存');
     }
 
     public function destroy(Track $track, AudioStorageService $storage): JsonResponse

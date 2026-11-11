@@ -237,7 +237,7 @@ class AdminOperationLogTest extends TestCase
         // 每个页面加载都会用 me 校准本地 profile 快照，且引用了新版本脚本
         $html = $this->get('/admin/tracks')->getContent();
         $this->assertStringContainsString('syncProfile', $html);
-        $this->assertStringContainsString('js/admin.js?v=2', $html);
+        $this->assertStringContainsString('js/admin.js?v=3', $html);
     }
 
     public function test_me_returns_current_role_from_database(): void

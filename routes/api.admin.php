@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\AlbumController;
 use App\Http\Controllers\Api\Admin\AuthController;
 use App\Http\Controllers\Api\Admin\OperationLogController;
 use App\Http\Controllers\Api\Admin\ReorderController;
+use App\Http\Controllers\Api\Admin\StatsController;
 use App\Http\Controllers\Api\Admin\TrackController;
 use App\Http\Middleware\AdminAuth;
 use App\Http\Middleware\EnsureSuperAdmin;
@@ -28,6 +29,9 @@ Route::prefix('admin')->name('api.admin.')->middleware(LogAdminOperation::class)
     Route::middleware(AdminAuth::class)->group(function () {
         Route::get('auth/me', [AuthController::class, 'me'])->name('auth.me');
         Route::post('auth/password', [AuthController::class, 'password'])->name('auth.password');
+
+        // 运营面板：只读，所有登录管理员可见
+        Route::get('stats', [StatsController::class, 'index'])->name('stats.index');
 
         Route::get('albums', [AlbumController::class, 'index'])->name('albums.index');
         Route::post('albums', [AlbumController::class, 'store'])->name('albums.store');

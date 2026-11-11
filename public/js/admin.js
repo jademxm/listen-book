@@ -157,6 +157,55 @@
     });
   }
 
+  /**
+   * 带上传进度的 multipart 请求。fetch 拿不到 upload.onprogress，所以改用 XHR。
+   * 与 request() 口径一致：Bearer、access 过期（40102）刷新后重放一次、成功返回 data。
+   * onProgress(loaded, total) 只在上传阶段回调；网络失败会 reject。
+   */
+  function upload(url, formData, onProgress) {
+    function attempt() {
+      return new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Accept', 'application/json');
+        var token = getAccess();
+        if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+
+        xhr.upload.onprogress = function (e) {
+          if (e.lengthComputable && typeof onProgress === 'function') onProgress(e.loaded, e.total);
+        };
+        xhr.onload = function () {
+          var body = {};
+          try { body = JSON.parse(xhr.responseText || '{}'); } catch (e) { /* 非 JSON 响应按空体处理 */ }
+          resolve({ status: xhr.status, body: body });
+        };
+        xhr.onerror = function () { reject(new Error('网络异常，上传未完成')); };
+        xhr.onabort = function () { reject(new Error('上传已取消')); };
+        xhr.send(formData);
+      });
+    }
+
+    function finalizeUpload(pair) {
+      return finalize({
+        res: { status: pair.status, ok: pair.status >= 200 && pair.status < 300 },
+        json: pair.body
+      });
+    }
+
+    return attempt().then(function (pair) {
+      if (pair.status === 401 && pair.body.code === 40102 && getRefresh()) {
+        return refreshSession()
+          .then(attempt)
+          .then(finalizeUpload, function () {
+            redirectToLogin();
+            throw new Error(pair.body.message || '登录已过期');
+          });
+      }
+
+      return finalizeUpload(pair);
+    });
+  }
+
   function escapeHtml(value) {
     return String(value === null || value === undefined ? '' : value)
       .replace(/&/g, '&amp;')
@@ -208,6 +257,7 @@
     patch: function (url, body) { return request('PATCH', url, body); },
     del: function (url) { return request('DELETE', url); },
     request: request,
+    upload: upload,
     refresh: refreshSession
   };
 

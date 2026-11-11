@@ -36,7 +36,7 @@ button:disabled { opacity:.6; cursor:default; }
   <p class="hint">用户名或手机号均可登录。连续 5 次密码错误将锁定 15 分钟。</p>
 </form>
 
-<script src="{{ asset('js/admin.js') }}?v=2"></script>
+<script src="{{ asset('js/admin.js') }}?v=3"></script>
 <script>
 (function () {
   // 已有登录态就别停在登录页
