@@ -6,10 +6,6 @@
 @section('content')
 <h1>{{ $group }}管理</h1>
 
-<div class="page-actions">
-  <button type="button" class="btn-primary" id="open-create"><span class="plus">＋</span>新建{{ $group }}</button>
-</div>
-
 <dialog class="lb-modal" id="create-dialog" aria-labelledby="create-heading">
   <form id="create-form" enctype="multipart/form-data">
     <div class="lb-modal-head">
@@ -42,7 +38,7 @@
 <div class="card">
   <h2>{{ $group }}列表（拖动行调整顺序：落在行的上半部分插到其之前，下半部分插到其之后）</h2>
   <table>
-    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">上架{{ $item }}</th><th style="width:220px">操作</th></tr></thead>
+    <thead><tr><th style="width:60px">顺序</th><th style="width:60px">封面</th><th>名称</th><th style="width:90px">上架{{ $item }}</th><th style="width:220px"><div class="th-actions"><span>操作</span><button type="button" class="btn-primary btn-compact" id="open-create"><span class="plus">＋</span>新建{{ $group }}</button></div></th></tr></thead>
     <tbody id="album-rows">
       <tr><td colspan="5" class="muted">加载中…</td></tr>
     </tbody>

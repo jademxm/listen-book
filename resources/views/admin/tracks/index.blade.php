@@ -6,10 +6,6 @@
 @section('content')
 <h1>{{ $item }}管理</h1>
 
-<div class="page-actions">
-  <button type="button" class="btn-primary" id="open-upload"><span class="plus">＋</span>上传{{ $item }}</button>
-</div>
-
 <dialog class="lb-modal" id="upload-dialog" aria-labelledby="upload-heading">
   <form id="upload-form" enctype="multipart/form-data">
     <div class="lb-modal-head">
@@ -71,7 +67,7 @@
 <div class="card">
   <h2>{{ $item }}列表（同一{{ $group }}内拖动行排序：落在行的上半部分插到其之前，下半部分插到其之后）</h2>
   <table>
-    <thead><tr><th style="width:56px">顺序</th><th style="width:140px">{{ $group }}</th><th style="width:56px">封面</th><th>标题</th><th style="width:80px">时长</th><th style="width:200px">试听</th><th style="width:220px">操作</th></tr></thead>
+    <thead><tr><th style="width:56px">顺序</th><th style="width:140px">{{ $group }}</th><th style="width:56px">封面</th><th>标题</th><th style="width:80px">时长</th><th style="width:200px">试听</th><th style="width:220px"><div class="th-actions"><span>操作</span><button type="button" class="btn-primary btn-compact" id="open-upload"><span class="plus">＋</span>上传{{ $item }}</button></div></th></tr></thead>
     <tbody id="track-rows">
       <tr><td colspan="7" class="muted">加载中…</td></tr>
     </tbody>

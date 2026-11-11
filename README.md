@@ -510,7 +510,7 @@ php artisan test             # 28 passed / 144 assertions（含事件幂等、�
 - `PATCH /api/admin/tracks/{id}` 新增可选 `album_id`：换专辑在单事务内回写 `play_histories` / `play_events` 的冗余 `album_id` 并重排 `sort_order`，`object_key` 与桶对象保持不变。
 - 上传仍走 `POST /api/admin/tracks`，前端改为 XHR（`upload.onprogress`）串行队列；脚本版本 `admin.js?v=4`。
 - `GET /api/admin/stats?days=30` 只读聚合（所有登录管理员可见），`AdminStatsService` 按 `tracks.album_id` 当前归属统计，SQL 内 `GROUP BY`；不返回 `play_count`。
-- 创建入口（新建专辑 / 上传音频 / 新增管理员）改为页面顶部按钮 + 原生 `<dialog>` 弹窗表单，`admin.js` 的 `adminUi.bindModal()` 管开关；纯前端改动，无迁移。
+- 创建入口（新建专辑 / 上传音频 / 新增管理员）放在各自列表表头的「操作」列内（`.th-actions` + 紧凑按钮），点击开原生 `<dialog>` 弹窗表单，`admin.js` 的 `adminUi.bindModal()` 管开关；纯前端改动，无迁移。
 - 迁移 `2026_11_11_000001_add_stats_indexes` 只加索引：`git pull` → `php artisan migrate` → `php artisan view:clear` → 浏览器强刷拿 `?v=4`。
 
 ---

@@ -85,14 +85,18 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
 .bars { display:flex; align-items:flex-end; gap:4px; height:120px; }
 .bars > span { flex:1; min-width:4px; background:var(--accent); border-radius:3px 3px 0 0; opacity:.8; }
 
-/* ---- 页面操作区：位于顶部栏下方 ---- */
-.page-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 20px; }
+/* ---- 列表操作栏：创建 / 上传按钮放在表头「操作」列 ---- */
+.th-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.th-actions > span { white-space:nowrap; }
 .btn-primary { display:inline-flex; align-items:center; gap:8px; height:44px; padding:0 20px; border:1px solid var(--accent); border-radius:10px; background:var(--accent); color:#fff; font:inherit; font-size:14px; font-weight:600; letter-spacing:.01em; cursor:pointer; box-shadow:0 1px 2px rgba(16,24,40,.06),0 4px 12px rgba(16,24,40,.06); transition:transform 150ms cubic-bezier(.2,0,0,1),box-shadow 150ms ease,filter 150ms ease; }
 .btn-primary .plus { font-size:18px; font-weight:400; line-height:1; }
 .btn-primary:hover { transform:translateY(-1px); filter:brightness(1.06); box-shadow:0 4px 8px rgba(16,24,40,.08),0 10px 24px rgba(16,24,40,.10); }
 .btn-primary:active { transform:translateY(0) scale(.98); filter:brightness(.96); }
 .btn-primary:disabled { opacity:.55; cursor:default; transform:none; box-shadow:none; }
 .btn-primary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+/* 表头内用小号按钮，避免撑高 thead；弹窗底部仍用标准 44px */
+.btn-primary.btn-compact { height:30px; padding:0 10px; border-radius:7px; font-size:12px; white-space:nowrap; box-shadow:none; }
+.btn-primary.btn-compact .plus { font-size:14px; }
 
 /* ---- 创建 / 上传弹窗（原生 dialog，无依赖） ---- */
 .lb-modal { width:min(600px,calc(100vw - 32px)); max-width:100%; max-height:min(86vh,820px); padding:0; border:1px solid rgba(16,24,40,.08); border-radius:16px; background:#fff; color:#1f2937; box-shadow:0 1px 2px rgba(16,24,40,.06),0 18px 48px rgba(16,24,40,.16); overflow:hidden; }

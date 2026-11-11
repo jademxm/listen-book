@@ -4,10 +4,6 @@
 @section('content')
 <h1>管理员</h1>
 
-<div class="page-actions">
-  <button type="button" class="btn-primary" id="open-create"><span class="plus">＋</span>新增管理员</button>
-</div>
-
 <dialog class="lb-modal" id="create-dialog" aria-labelledby="create-heading">
   <form id="create-form">
     <div class="lb-modal-head">
@@ -62,7 +58,7 @@
         <th style="width:110px">角色</th>
         <th style="width:90px">状态</th>
         <th style="width:170px">最后登录</th>
-        <th style="width:230px">操作</th>
+        <th style="width:230px"><div class="th-actions"><span>操作</span><button type="button" class="btn-primary btn-compact" id="open-create"><span class="plus">＋</span>新增管理员</button></div></th>
       </tr>
     </thead>
     <tbody id="admin-rows">
