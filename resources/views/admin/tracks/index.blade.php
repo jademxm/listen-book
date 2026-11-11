@@ -199,6 +199,15 @@
       const data = await api.get('/api/admin/tracks?' + params.toString());
       fillAlbumOptions(data.albums || []);
 
+      // 在末页删到最后一条、或筛选后命中数变少时，回落到最后一页，避免停在空页
+      if (!data.items.length && state.page > 1) {
+        const lastPage = (data.pagination && data.pagination.last_page) || 1;
+        if (state.page > lastPage) {
+          state.page = lastPage;
+          return loadTracks();
+        }
+      }
+
       if (!data.items.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="muted">暂无' + esc(LEVELS.item) + '。</td></tr>';
       } else {
@@ -383,11 +392,22 @@
     progressText.style.display = '';
   }
 
+  function resetProgress() {
+    progressBar.style.width = '0%';
+    progressText.textContent = '';
+    progressBox.style.display = 'none';
+    progressText.style.display = 'none';
+  }
+
   audioInput.addEventListener('change', () => {
     const files = Array.from(audioInput.files || []);
     durationInput.value = '';
     tooLarge = false;
     if (!files.length) {
+      // 清空选择：队列必须跟着清，否则旧文件还在、点上传会传错内容
+      queue = [];
+      renderQueue();
+      resetProgress();
       hint.textContent = '选择' + LEVELS.item + '后会自动读取时长；未读取到则留空。';
       return;
     }
@@ -395,6 +415,9 @@
     const oversized = files.filter(f => f.size > MAX_AUDIO_BYTES);
     if (oversized.length) {
       tooLarge = true;
+      queue = [];
+      renderQueue();
+      resetProgress();
       hint.textContent = '有 ' + oversized.length + ' 个文件超过 100MB 上限，请压缩后重新选择。';
       return;
     }
@@ -488,6 +511,7 @@
     if (!failed) {
       queue = [];
       renderQueue();
+      resetProgress();
       uploadForm.reset();
       durationInput.value = '';
       hint.textContent = '选择' + LEVELS.item + '后会自动读取时长；未读取到则留空。';
