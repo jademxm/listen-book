@@ -91,10 +91,10 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
   {{-- 左侧：页面入口（操作按钮），退出单独留在右侧 --}}
   <nav class="nav">
     {{-- 层名来自 $levels（config/content.php ← .env 的 CONTENT_*） --}}
-    <a href="{{ route('admin.tracks.index') }}">{{ $levels['item'] }}</a>
     <a href="{{ route('admin.albums.index') }}">{{ $levels['group'] }}</a>
-    <a href="{{ route('admin.stats.index') }}">数据面板</a>
+    <a href="{{ route('admin.tracks.index') }}">{{ $levels['item'] }}</a>
     <a href="{{ route('admin.admins.index') }}" data-super-only>管理员</a>
+    <a href="{{ route('admin.stats.index') }}">数据面板</a>
     <a href="{{ route('admin.logs.index') }}" data-super-only>操作日志</a>
   </nav>
   <div class="head-right">
