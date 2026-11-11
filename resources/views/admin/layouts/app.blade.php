@@ -36,9 +36,11 @@ html[data-lb-role-gate]:not(.lb-role-ready) main { visibility:hidden; }
 html:not(.lb-super-ready) [data-super-only] { display:none; }
 * { box-sizing:border-box; }
 body { margin:0; font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; color:#1f2937; background:#f7f8fa; }
-header { display:flex; align-items:center; gap:20px; padding:12px 24px; background:#fff; border-bottom:1px solid var(--line); }
+header { display:flex; align-items:center; gap:20px; flex-wrap:wrap; padding:12px 24px; background:#fff; border-bottom:1px solid var(--line); }
 header a { color:var(--accent); text-decoration:none; }
-header .brand { font-weight:600; margin-right:auto; display:flex; align-items:center; gap:8px; }
+header .nav { display:flex; align-items:center; gap:20px; flex-wrap:wrap; }
+header .head-right { margin-left:auto; display:flex; align-items:center; gap:20px; }
+header .brand { font-weight:600; display:flex; align-items:center; gap:8px; padding-left:14px; border-left:1px solid var(--line); white-space:nowrap; }
 header .brand-logo { height:22px; width:auto; max-width:120px; object-fit:contain; border-radius:4px; }
 header .who { color:var(--muted); font-size:13px; }
 main { max-width:1080px; margin:24px auto; padding:0 20px; }
@@ -86,19 +88,24 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
 </head>
 <body>
 <header>
-  {{-- 站名与 Logo 来自 $brand（config/brand.php ← .env 的 BRAND_*） --}}
-  <span class="brand">
-    @if(!empty($brand['logo']))<img class="brand-logo" src="{{ $brand['logo'] }}" alt="{{ $brand['name'] }}">@endif
-    <span>{{ $brand['name'] }}</span>
-  </span>
-  {{-- 层名来自 $levels（config/content.php ← .env 的 CONTENT_*） --}}
-  <a href="{{ route('admin.tracks.index') }}">{{ $levels['item'] }}</a>
-  <a href="{{ route('admin.albums.index') }}">{{ $levels['group'] }}</a>
-  <a href="{{ route('admin.stats.index') }}">数据面板</a>
-  <a href="{{ route('admin.admins.index') }}" data-super-only>管理员</a>
-  <a href="{{ route('admin.logs.index') }}" data-super-only>操作日志</a>
-  <span class="who" id="current-admin"></span>
-  <button type="button" class="ghost" id="logout-btn">退出</button>
+  {{-- 左侧：页面入口（操作按钮），退出单独留在右侧 --}}
+  <nav class="nav">
+    {{-- 层名来自 $levels（config/content.php ← .env 的 CONTENT_*） --}}
+    <a href="{{ route('admin.tracks.index') }}">{{ $levels['item'] }}</a>
+    <a href="{{ route('admin.albums.index') }}">{{ $levels['group'] }}</a>
+    <a href="{{ route('admin.stats.index') }}">数据面板</a>
+    <a href="{{ route('admin.admins.index') }}" data-super-only>管理员</a>
+    <a href="{{ route('admin.logs.index') }}" data-super-only>操作日志</a>
+  </nav>
+  <div class="head-right">
+    <span class="who" id="current-admin"></span>
+    <button type="button" class="ghost" id="logout-btn">退出</button>
+    {{-- 站名与 Logo 来自 $brand（config/brand.php ← .env 的 BRAND_*） --}}
+    <span class="brand">
+      @if(!empty($brand['logo']))<img class="brand-logo" src="{{ $brand['logo'] }}" alt="{{ $brand['name'] }}">@endif
+      <span>{{ $brand['name'] }}</span>
+    </span>
+  </div>
 </header>
 <main>
   <div id="page-msg" class="msg" style="display:none"></div>
