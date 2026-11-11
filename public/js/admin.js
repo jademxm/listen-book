@@ -241,6 +241,48 @@
     if (el) el.style.display = 'none';
   }
 
+  /**
+   * 创建 / 上传弹窗的通用开关。
+   * 原生 <dialog> 自带 ESC 关闭与焦点管理；旧浏览器退化成 [open] 属性。
+   * opts: { trigger: 打开按钮（选择器或元素）, focus: 打开后聚焦的选择器 }
+   */
+  function bindModal(dialog, opts) {
+    if (!dialog) return { open: function () {}, close: function () {} };
+    var options = opts || {};
+
+    function open() {
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+      // 每次重新打开都清掉上一次的校验 / 结果提示
+      var msgs = dialog.querySelectorAll('.msg');
+      for (var j = 0; j < msgs.length; j++) msgs[j].style.display = 'none';
+      var first = options.focus ? dialog.querySelector(options.focus) : null;
+      if (first) window.setTimeout(function () { first.focus(); }, 0);
+    }
+
+    function close() {
+      if (typeof dialog.close === 'function' && dialog.open) dialog.close();
+      else dialog.removeAttribute('open');
+    }
+
+    var trigger = typeof options.trigger === 'string'
+      ? document.querySelector(options.trigger)
+      : (options.trigger || document.getElementById('open-create'));
+    if (trigger) trigger.addEventListener('click', open);
+
+    var closers = dialog.querySelectorAll('[data-modal-close]');
+    for (var i = 0; i < closers.length; i++) {
+      closers[i].addEventListener('click', close);
+    }
+
+    // 点在遮罩（dialog 自身）上关闭，点在内容区不关
+    dialog.addEventListener('click', function (e) {
+      if (e.target === dialog) close();
+    });
+
+    return { open: open, close: close };
+  }
+
   window.adminSession = {
     getAccess: getAccess,
     getRefresh: getRefresh,
@@ -265,7 +307,8 @@
     escapeHtml: escapeHtml,
     formatDuration: formatDuration,
     toast: toast,
-    hideToast: hideToast
+    hideToast: hideToast,
+    bindModal: bindModal
   };
 
   /** 未登录直接跳登录页，返回 false 时页面脚本应中止后续加载 */

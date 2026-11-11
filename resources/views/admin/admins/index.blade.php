@@ -4,37 +4,53 @@
 @section('content')
 <h1>管理员</h1>
 
-<div class="card">
-  <h2>新增管理员</h2>
-  <form id="create-form">
-    <div class="row">
-      <div>
-        <label for="create-username">用户名</label>
-        <input id="create-username" type="text" name="username" maxlength="32" required placeholder="3-32 位字母、数字、下划线">
-      </div>
-      <div>
-        <label for="create-phone">手机号</label>
-        <input id="create-phone" type="text" name="phone" maxlength="11" required placeholder="11 位手机号">
-      </div>
-    </div>
-    <div class="row">
-      <div>
-        <label for="create-name">显示名（选填）</label>
-        <input id="create-name" type="text" name="name" maxlength="32">
-      </div>
-      <div>
-        <label for="create-role">角色</label>
-        <select id="create-role" name="role">
-          <option value="admin">普通管理员</option>
-          <option value="super">超级管理员</option>
-        </select>
-      </div>
-    </div>
-    <label for="create-password">初始密码</label>
-    <input id="create-password" type="password" name="password" maxlength="64" required placeholder="至少 8 位，需含字母和数字" autocomplete="new-password">
-    <div style="margin-top:14px"><button type="submit" id="create-btn">创建</button></div>
-  </form>
+<div class="page-actions">
+  <button type="button" class="btn-primary" id="open-create"><span class="plus">＋</span>新增管理员</button>
 </div>
+
+<dialog class="lb-modal" id="create-dialog" aria-labelledby="create-heading">
+  <form id="create-form">
+    <div class="lb-modal-head">
+      <h2 id="create-heading">新增管理员</h2>
+      <button type="button" class="lb-modal-close" data-modal-close aria-label="关闭">×</button>
+    </div>
+    <div class="lb-modal-body">
+      <div class="msg" id="create-msg" style="display:none"></div>
+      <div class="row">
+        <div>
+          <label for="create-username">用户名</label>
+          <input id="create-username" type="text" name="username" maxlength="32" required placeholder="3-32 位字母、数字、下划线">
+        </div>
+        <div>
+          <label for="create-phone">手机号</label>
+          <input id="create-phone" type="text" name="phone" maxlength="11" required placeholder="11 位手机号">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="create-name">显示名 <span class="muted">· 选填</span></label>
+          <input id="create-name" type="text" name="name" maxlength="32" placeholder="后台显示的名字">
+        </div>
+        <div>
+          <label for="create-role">角色</label>
+          <select id="create-role" name="role">
+            <option value="admin">普通管理员</option>
+            <option value="super">超级管理员</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="create-password">初始密码</label>
+        <input id="create-password" type="password" name="password" maxlength="64" required placeholder="至少 8 位，需含字母和数字" autocomplete="new-password">
+        <p class="field-hint">创建后请把账号密码单独告知对方，建议首次登录后修改。</p>
+      </div>
+    </div>
+    <div class="lb-modal-foot">
+      <button type="button" class="btn ghost" data-modal-close>取消</button>
+      <button type="submit" class="btn-primary" id="create-btn">创建</button>
+    </div>
+  </form>
+</dialog>
 
 <div class="card">
   <h2>管理员列表</h2>
@@ -208,11 +224,18 @@
     }
   });
 
+  const createMsg = document.getElementById('create-msg');
+  const createModal = window.adminUi.bindModal(document.getElementById('create-dialog'), {
+    trigger: '#open-create',
+    focus: '#create-username'
+  });
+
   createForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const fd = new FormData(createForm);
     const btn = document.getElementById('create-btn');
+    createMsg.style.display = 'none';
     btn.disabled = true;
     btn.textContent = '创建中…';
 
@@ -226,9 +249,13 @@
       });
       window.adminUi.toast('管理员已创建');
       createForm.reset();
+      createModal.close();
       await loadAdmins();
     } catch (err) {
-      window.adminUi.toast('创建失败：' + err.message, 'err');
+      // dialog 处于 top layer，页面级 toast 会被遮罩盖住，错误改在弹窗内显示
+      createMsg.className = 'msg err';
+      createMsg.textContent = '创建失败：' + err.message;
+      createMsg.style.display = '';
     } finally {
       btn.disabled = false;
       btn.textContent = '创建';

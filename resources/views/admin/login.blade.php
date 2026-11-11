@@ -6,13 +6,17 @@
 <title>{{ $brand['name'] }}登录</title>
 <style>
 body { margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; background:#f7f8fa; font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; }
-.box { width:340px; background:#fff; border:1px solid #e3e6ea; border-radius:10px; padding:28px; }
+.box { width:340px; background:#fff; border:1px solid rgba(16,24,40,.08); border-radius:16px; padding:28px; box-shadow:0 1px 2px rgba(16,24,40,.06),0 18px 48px rgba(16,24,40,.10); }
 h1 { font-size:18px; margin:0 0 18px; display:flex; align-items:center; gap:8px; }
 h1 img { height:22px; width:auto; max-width:120px; object-fit:contain; border-radius:4px; }
-label { display:block; margin:12px 0 4px; color:#374151; }
-input { width:100%; padding:9px 10px; border:1px solid #d1d5db; border-radius:6px; font:inherit; }
+label { display:block; margin:14px 0 6px; color:#374151; font-size:13px; font-weight:500; }
+input { width:100%; height:44px; padding:0 14px; border:1.5px solid #d8dde4; border-radius:10px; font:inherit; transition:border-color 150ms ease; }
 input:focus { outline:none; border-color:{{ $brand['color'] }}; }
-button { width:100%; margin-top:18px; padding:9px; border:0; border-radius:6px; background:{{ $brand['color'] }}; color:#fff; font:inherit; cursor:pointer; }
+input:focus-visible { outline:2px solid {{ $brand['color'] }}; outline-offset:2px; }
+button { width:100%; height:44px; margin-top:22px; border:0; border-radius:10px; background:{{ $brand['color'] }}; color:#fff; font:inherit; font-weight:600; cursor:pointer; transition:transform 150ms ease,filter 150ms ease; }
+button:hover:not(:disabled) { transform:translateY(-1px); filter:brightness(1.06); }
+button:active:not(:disabled) { transform:translateY(0) scale(.98); }
+button:focus-visible { outline:2px solid {{ $brand['color'] }}; outline-offset:3px; }
 button:disabled { opacity:.6; cursor:default; }
 .err { color:#a32d2d; margin-top:12px; font-size:13px; }
 .hint { color:#6b7280; font-size:12px; margin-top:14px; }
@@ -36,7 +40,7 @@ button:disabled { opacity:.6; cursor:default; }
   <p class="hint">用户名或手机号均可登录。连续 5 次密码错误将锁定 15 分钟。</p>
 </form>
 
-<script src="{{ asset('js/admin.js') }}?v=3"></script>
+<script src="{{ asset('js/admin.js') }}?v=4"></script>
 <script>
 (function () {
   // 已有登录态就别停在登录页

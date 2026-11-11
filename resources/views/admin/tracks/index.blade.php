@@ -6,35 +6,52 @@
 @section('content')
 <h1>{{ $item }}管理</h1>
 
-<div class="card">
-  <h2>上传{{ $item }}</h2>
+<div class="page-actions">
+  <button type="button" class="btn-primary" id="open-upload"><span class="plus">＋</span>上传{{ $item }}</button>
+</div>
+
+<dialog class="lb-modal" id="upload-dialog" aria-labelledby="upload-heading">
   <form id="upload-form" enctype="multipart/form-data">
-    <div class="row">
-      <div>
-        <label for="upload-album">所属{{ $group }}</label>
-        <select id="upload-album" name="album_id" required></select>
+    <div class="lb-modal-head">
+      <h2 id="upload-heading">上传{{ $item }}</h2>
+      <button type="button" class="lb-modal-close" data-modal-close aria-label="关闭">×</button>
+    </div>
+    <div class="lb-modal-body">
+      <div class="msg" id="upload-msg" style="display:none"></div>
+      <div class="row">
+        <div>
+          <label for="upload-album">所属{{ $group }}</label>
+          <select id="upload-album" name="album_id" required></select>
+        </div>
+        <div>
+          <label for="upload-title">{{ $item }}标题 <span class="muted">· 单个文件时填写</span></label>
+          <input id="upload-title" type="text" name="title" maxlength="150" placeholder="留空则用文件名；批量时按文件名自动命名">
+        </div>
       </div>
-      <div>
-        <label for="upload-title">{{ $item }}标题（单个文件时填写）</label>
-        <input id="upload-title" type="text" name="title" maxlength="150" placeholder="留空则用文件名；批量时按文件名自动命名">
+      <div class="field">
+        <label for="audio">{{ $item }}文件 <span class="muted">· 可多选</span></label>
+        <input id="audio" type="file" name="audio" accept=".mp3,.m4a,.aac,.wav" multiple>
+        <p class="field-hint">mp3 / m4a / aac / wav，单个 ≤100MB。批量时按顺序逐个上传，标题按文件名自动生成；服务端需允许 ≥128MB 请求体，返回 413 说明 nginx / PHP 限制未放宽。</p>
+      </div>
+      <div class="field">
+        <label for="cover">封面 <span class="muted">· 选填，仅单个文件时生效</span></label>
+        <input id="cover" type="file" name="cover" accept="image/jpeg,image/png,image/webp">
+      </div>
+      <input type="hidden" name="duration_sec" id="duration_sec" value="">
+      <p class="field-hint" id="duration-hint">选择{{ $item }}后会自动读取时长；未读取到则留空。</p>
+      <div id="upload-progress" class="progress" style="display:none"><i id="upload-progress-bar"></i></div>
+      <div id="upload-progress-text" class="progress-text" style="display:none"></div>
+      <div id="upload-queue" class="upload-queue" style="display:none">
+        <ul id="upload-queue-list"></ul>
+        <button type="button" class="ghost" id="retry-btn" style="display:none">重试失败项</button>
       </div>
     </div>
-    <label for="audio">{{ $item }}文件（mp3/m4a/aac/wav，≤100MB，可多选）</label>
-    <input id="audio" type="file" name="audio" accept=".mp3,.m4a,.aac,.wav" multiple>
-    <p class="muted" style="font-size:12px">批量上传按顺序逐个提交，一次只传一个文件；服务端需允许 ≥128MB 请求体，若返回 413 说明 nginx / PHP 限制未放宽，见 README 第 3 节。</p>
-    <label for="cover">封面（选填，仅单个文件时生效）</label>
-    <input id="cover" type="file" name="cover" accept="image/jpeg,image/png,image/webp">
-    <input type="hidden" name="duration_sec" id="duration_sec" value="">
-    <p class="muted" style="font-size:12px" id="duration-hint">选择{{ $item }}后会自动读取时长；未读取到则留空。</p>
-    <div style="margin-top:14px"><button type="submit" id="upload-btn">上传并上架</button></div>
-    <div id="upload-progress" class="progress" style="display:none"><i id="upload-progress-bar"></i></div>
-    <div id="upload-progress-text" class="progress-text" style="display:none"></div>
-    <div id="upload-queue" class="upload-queue" style="display:none">
-      <ul id="upload-queue-list"></ul>
-      <button type="button" class="ghost" id="retry-btn" style="display:none">重试失败项</button>
+    <div class="lb-modal-foot">
+      <button type="button" class="btn ghost" data-modal-close>关闭</button>
+      <button type="submit" class="btn-primary" id="upload-btn">上传并上架</button>
     </div>
   </form>
-</div>
+</dialog>
 
 <div class="card">
   <h2>筛选</h2>
@@ -413,11 +430,18 @@
     probe.src = url;
   });
 
+  const uploadMsg = document.getElementById('upload-msg');
+  const uploadModal = window.adminUi.bindModal(document.getElementById('upload-dialog'), {
+    trigger: '#open-upload',
+    focus: '#audio'
+  });
+
   async function runQueue(onlyFailed) {
     if (!uploadAlbum.value) { alert('请先创建' + LEVELS.group + '。'); return; }
     const targets = queue.filter(q => onlyFailed ? q.status === 'err' : q.status !== 'ok');
     if (!targets.length) return;
 
+    uploadMsg.style.display = 'none';
     uploadBtn.disabled = true;
     retryBtn.disabled = true;
     uploadBtn.textContent = '上传中…';
@@ -453,10 +477,14 @@
 
     const ok = queue.filter(q => q.status === 'ok').length;
     const failed = queue.filter(q => q.status === 'err').length;
-    window.adminUi.toast(
-      '上传完成：成功 ' + ok + ' 个' + (failed ? '，失败 ' + failed + ' 个（可点「重试失败项」）' : ''),
-      failed ? 'err' : 'ok'
-    );
+    const summary = '上传完成：成功 ' + ok + ' 个' + (failed ? '，失败 ' + failed + ' 个（可点「重试失败项」）' : '');
+    // 弹窗未关闭时页面级 toast 会被遮罩盖住，失败结果直接显示在弹窗内
+    if (failed) {
+      uploadMsg.className = 'msg err';
+      uploadMsg.textContent = summary;
+      uploadMsg.style.display = '';
+    }
+    window.adminUi.toast(summary, failed ? 'err' : 'ok');
 
     uploadBtn.disabled = false;
     retryBtn.disabled = false;
@@ -467,6 +495,7 @@
       uploadForm.reset();
       durationInput.value = '';
       hint.textContent = '选择' + LEVELS.item + '后会自动读取时长；未读取到则留空。';
+      uploadModal.close();
     }
     state.page = 1;
     await loadTracks();

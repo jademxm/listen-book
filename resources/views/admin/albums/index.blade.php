@@ -6,18 +6,38 @@
 @section('content')
 <h1>{{ $group }}管理</h1>
 
-<div class="card">
-  <h2>新建{{ $group }}</h2>
-  <form id="create-form" enctype="multipart/form-data">
-    <label for="create-title">{{ $group }}名称</label>
-    <input id="create-title" type="text" name="title" maxlength="120" required>
-    <label for="create-description">简介（选填）</label>
-    <input id="create-description" type="text" name="description" maxlength="500">
-    <label for="create-cover">封面（选填，jpg/png/webp ≤5MB）</label>
-    <input id="create-cover" type="file" name="cover" accept="image/jpeg,image/png,image/webp">
-    <div style="margin-top:14px"><button type="submit" id="create-btn">创建</button></div>
-  </form>
+<div class="page-actions">
+  <button type="button" class="btn-primary" id="open-create"><span class="plus">＋</span>新建{{ $group }}</button>
 </div>
+
+<dialog class="lb-modal" id="create-dialog" aria-labelledby="create-heading">
+  <form id="create-form" enctype="multipart/form-data">
+    <div class="lb-modal-head">
+      <h2 id="create-heading">新建{{ $group }}</h2>
+      <button type="button" class="lb-modal-close" data-modal-close aria-label="关闭">×</button>
+    </div>
+    <div class="lb-modal-body">
+      <div class="msg" id="create-msg" style="display:none"></div>
+      <div class="field">
+        <label for="create-title">{{ $group }}名称</label>
+        <input id="create-title" type="text" name="title" maxlength="120" placeholder="给{{ $group }}起个名字" required>
+      </div>
+      <div class="field">
+        <label for="create-description">简介 <span class="muted">· 选填</span></label>
+        <input id="create-description" type="text" name="description" maxlength="500" placeholder="一句话介绍，会显示在小程序端">
+      </div>
+      <div class="field">
+        <label for="create-cover">封面 <span class="muted">· 选填</span></label>
+        <input id="create-cover" type="file" name="cover" accept="image/jpeg,image/png,image/webp">
+        <p class="field-hint">支持 jpg / png / webp，不超过 5MB。</p>
+      </div>
+    </div>
+    <div class="lb-modal-foot">
+      <button type="button" class="btn ghost" data-modal-close>取消</button>
+      <button type="submit" class="btn-primary" id="create-btn">创建</button>
+    </div>
+  </form>
+</dialog>
 
 <div class="card">
   <h2>{{ $group }}列表（拖动行调整顺序：落在行的上半部分插到其之前，下半部分插到其之后）</h2>
@@ -169,10 +189,17 @@
     }
   });
 
+  const createMsg = document.getElementById('create-msg');
+  const createModal = window.adminUi.bindModal(document.getElementById('create-dialog'), {
+    trigger: '#open-create',
+    focus: '#create-title'
+  });
+
   createForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const btn = document.getElementById('create-btn');
+    createMsg.style.display = 'none';
     btn.disabled = true;
     btn.textContent = '创建中…';
 
@@ -180,9 +207,13 @@
       await api.request('POST', '/api/admin/albums', new FormData(createForm));
       window.adminUi.toast(LEVELS.group + '已创建');
       createForm.reset();
+      createModal.close();
       await loadAlbums();
     } catch (err) {
-      window.adminUi.toast('创建失败：' + err.message, 'err');
+      // dialog 处于 top layer，页面级 toast 会被遮罩盖住，错误改在弹窗内显示
+      createMsg.className = 'msg err';
+      createMsg.textContent = '创建失败：' + err.message;
+      createMsg.style.display = '';
     } finally {
       btn.disabled = false;
       btn.textContent = '创建';

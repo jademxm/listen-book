@@ -84,6 +84,43 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
 .stat-cards strong { display:block; font-size:22px; margin-top:6px; }
 .bars { display:flex; align-items:flex-end; gap:4px; height:120px; }
 .bars > span { flex:1; min-width:4px; background:var(--accent); border-radius:3px 3px 0 0; opacity:.8; }
+
+/* ---- 页面操作区：位于顶部栏下方 ---- */
+.page-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 20px; }
+.btn-primary { display:inline-flex; align-items:center; gap:8px; height:44px; padding:0 20px; border:1px solid var(--accent); border-radius:10px; background:var(--accent); color:#fff; font:inherit; font-size:14px; font-weight:600; letter-spacing:.01em; cursor:pointer; box-shadow:0 1px 2px rgba(16,24,40,.06),0 4px 12px rgba(16,24,40,.06); transition:transform 150ms cubic-bezier(.2,0,0,1),box-shadow 150ms ease,filter 150ms ease; }
+.btn-primary .plus { font-size:18px; font-weight:400; line-height:1; }
+.btn-primary:hover { transform:translateY(-1px); filter:brightness(1.06); box-shadow:0 4px 8px rgba(16,24,40,.08),0 10px 24px rgba(16,24,40,.10); }
+.btn-primary:active { transform:translateY(0) scale(.98); filter:brightness(.96); }
+.btn-primary:disabled { opacity:.55; cursor:default; transform:none; box-shadow:none; }
+.btn-primary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+
+/* ---- 创建 / 上传弹窗（原生 dialog，无依赖） ---- */
+.lb-modal { width:min(600px,calc(100vw - 32px)); max-width:100%; max-height:min(86vh,820px); padding:0; border:1px solid rgba(16,24,40,.08); border-radius:16px; background:#fff; color:#1f2937; box-shadow:0 1px 2px rgba(16,24,40,.06),0 18px 48px rgba(16,24,40,.16); overflow:hidden; }
+.lb-modal::backdrop { background:rgba(17,24,39,.42); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); }
+.lb-modal[open] { animation:lb-modal-in 220ms cubic-bezier(.2,0,0,1) both; }
+@keyframes lb-modal-in { from { opacity:0; transform:translateY(12px) scale(.985); } to { opacity:1; transform:none; } }
+.lb-modal > form { display:flex; flex-direction:column; max-height:min(86vh,820px); }
+.lb-modal-head { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px 24px 16px; border-bottom:1px solid var(--line); }
+.lb-modal-head h2 { margin:0; font-size:17px; font-weight:600; letter-spacing:-.01em; }
+.lb-modal-close { width:32px; height:32px; padding:0; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:20px; line-height:1; cursor:pointer; transition:background 150ms ease,color 150ms ease; }
+.lb-modal-close:hover { background:#f3f4f6; color:#1f2937; }
+.lb-modal-body { padding:22px 24px; overflow:auto; }
+.lb-modal-foot { display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:16px 24px; border-top:1px solid var(--line); background:#fcfcfd; }
+.lb-modal-foot button.ghost { height:44px; padding:0 18px; border-radius:10px; font-size:14px; }
+
+/* ---- 弹窗内表单 ---- */
+.lb-modal label { display:block; margin:0 0 6px; font-size:13px; font-weight:500; color:#374151; }
+.lb-modal .field { margin-bottom:18px; }
+.lb-modal .field:last-child { margin-bottom:0; }
+.lb-modal .row { gap:16px; margin-bottom:18px; }
+.lb-modal .row > div { flex:1; min-width:0; }
+.lb-modal input[type=text], .lb-modal input[type=password], .lb-modal select { width:100%; max-width:none; height:44px; padding:0 14px; border:1.5px solid #d8dde4; border-radius:10px; background:#fff; color:#1f2937; font:inherit; transition:border-color 150ms ease; }
+.lb-modal input[type=file] { width:100%; max-width:none; min-height:44px; padding:9px 12px; border:1.5px solid #d8dde4; border-radius:10px; background:#fafbfc; font:inherit; cursor:pointer; }
+.lb-modal input::placeholder { color:#9ca3af; }
+.lb-modal input:focus, .lb-modal select:focus { outline:none; border-color:var(--accent); }
+.lb-modal input:focus-visible, .lb-modal select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.lb-modal .field-hint { margin:6px 0 0; font-size:12px; line-height:1.55; color:var(--muted); }
+@media (prefers-reduced-motion:reduce) { .lb-modal[open] { animation:none; } .btn-primary { transition:none; } }
 </style>
 </head>
 <body>
@@ -112,7 +149,7 @@ tr.edit-row > td { background:#fafbfc; padding:16px 18px; }
   @yield('content')
 </main>
 
-<script src="{{ asset('js/admin.js') }}?v=3"></script>
+<script src="{{ asset('js/admin.js') }}?v=4"></script>
 <script>
 (function () {
   if (!window.requireAdmin()) return;
