@@ -51,7 +51,9 @@ class StatsService
         foreach ($rows as $row) {
             $albumId = (int) $row->album_id;
             $albumIds[$albumId] = true;
-            $duration = (int) ($row->duration_sec ?: $row->track_duration ?: 0);
+            // 「按当前上架内容重算」：以曲目当前时长（t.duration_sec）为准，
+            // 仅在曲目时长缺失时回退到历史记录时长，避免音频重传/时长修正后累计值失真。
+            $duration = (int) ($row->track_duration ?: ($row->duration_sec ?: 0));
             $finished = (int) $row->finished === 1;
 
             if ($finished) {

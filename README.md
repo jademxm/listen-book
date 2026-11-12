@@ -184,7 +184,7 @@ chown -R www-data:www-data storage bootstrap/cache   # 按实际 PHP-FPM 运行�
 ```bash
 cp .env.example .env && php artisan key:generate
 composer install
-php artisan test                      # 使用 sqlite :memory:，无需外部服务；当前 66 passed / 346 assertions
+php artisan test                      # 使用 sqlite :memory:，无需外部服务；当前 80 passed / 529 assertions
 php artisan config:clear && php artisan route:clear
 php artisan route:list --path=v1
 php artisan route:list --path=admin
@@ -228,24 +228,24 @@ curl -s -o /dev/null -w '%{http_code}\n' $BASE/admin/tracks
 php artisan migrate          # 只新增 play_events 表，不改既有表；可 migrate:rollback 回滚
 php artisan optimize:clear   # 清路由/配置缓存，确保 /me/stats、/me/play-events 生效
 php artisan route:list --path=me   # 验收：应看到 6 条 /me 路由
-php artisan test             # 28 passed / 144 assertions（含事件幂等、补记截断、跨日拆分、清空联动）
+php artisan test             # 当时的基线：28 passed / 144 assertions（含事件幂等、补记截断、跨日拆分、清空联动）
 ```
 
 事件口径：`start` 只建基准、进度跳变与暂停不计入、`catchup` 按 `min(真实经过时间, 曲目剩余时长)` 截断、跨北京自然日拆分归属、用户身份只取 token。上线前的历史收听不回填；详情见 `docs/我的模块/需求规格说明书(SRS)_听书小程序我的模块.md` 与 `docs/ARCHITECTURE.md` ADR-14。
 
 ---
 
-## 后台运营能力（v0.15.0）
+## 8. 后台运营能力（v0.15.0）
 
 - `PATCH /api/admin/tracks/{id}` 新增可选 `album_id`：换专辑在单事务内回写 `play_histories` / `play_events` 的冗余 `album_id` 并重排 `sort_order`，`object_key` 与桶对象保持不变。
 - 上传仍走 `POST /api/admin/tracks`，前端改为 XHR（`upload.onprogress`）串行队列；脚本版本 `admin.js?v=4`。
 - `GET /api/admin/stats?days=30` 只读聚合（所有登录管理员可见），`AdminStatsService` 按 `tracks.album_id` 当前归属统计，SQL 内 `GROUP BY`；不返回 `play_count`。
-- 创建入口（新建专辑 / 上传音频 / 新增管理员）放在各自列表表头的「操作」列内（`.th-actions` + 紧凑按钮），点击开原生 `<dialog>` 弹窗表单，`admin.js` 的 `adminUi.bindModal()` 管开关；纯前端改动，无迁移。
-- 迁移 `2026_11_11_000001_add_stats_indexes` 只加索引：`git pull` → `php artisan migrate` → `php artisan view:clear` → 浏览器强刷拿 `?v=4`。
+- 创建入口（新建专辑 / 上传音频 / 新增管理员）放在各自列表表头的「操作」列内（`.th-actions` + 紧凑按钮），点击开原生 `<dialog>` 弹窗表单，`admin.js` 的 `adminUi.bindModal()` 管开关；顶部导航顺序为 专辑 → 音频 → 管理员 → 数据面板 → 操作日志，操作按钮靠左、项目名在右。纯前端改动，无迁移。
+- 迁移 `2026_11_11_000001_add_stats_indexes` 只加索引：`git pull` → `php artisan migrate --force` → `php artisan view:clear` → 浏览器强刷拿 `?v=4`。
 
 ---
 
-## 8. 已知限制（务必知悉）
+## 9. 已知限制（务必知悉）
 
 1. **个人主体 + 音频/有声读物类目未开放**，且 `requiredBackgroundModes` 正式版需审核 → 当前只保证体验版可用，正式发布大概率被驳回。
 2. `wx.login` 的 code 有效期 5 分钟、只能用一次；小程序 `services/auth.js` 在每次冷启动与 401 时重新换取 token。
